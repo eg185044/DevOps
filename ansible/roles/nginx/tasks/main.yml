@@ -1,0 +1,56 @@
+---
+- name: Install nginx package
+  ansible.builtin.apt:
+    name: nginx
+    state: present
+    update_cache: true
+  notify: restart nginx
+
+- name: Create frontend web root
+  ansible.builtin.file:
+    path: "{{ frontend_root }}"
+    state: directory
+    owner: www-data
+    group: www-data
+    mode: "0755"
+
+- name: Copy frontend website files
+  ansible.builtin.copy:
+    src: "../../../../app/frontend/public/"
+    dest: "{{ frontend_root }}/"
+    owner: www-data
+    group: www-data
+    mode: "0644"
+  notify: restart nginx
+
+- name: Render nginx reverse proxy configuration
+  ansible.builtin.template:
+    src: cv-platform.conf.j2
+    dest: /etc/nginx/sites-available/cv-platform.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart nginx
+
+- name: Enable cv-platform nginx site
+  ansible.builtin.file:
+    src: /etc/nginx/sites-available/cv-platform.conf
+    dest: /etc/nginx/sites-enabled/cv-platform.conf
+    state: link
+  notify: restart nginx
+
+- name: Remove default nginx site
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: restart nginx
+
+- name: Validate nginx config
+  ansible.builtin.command: nginx -t
+  changed_when: false
+
+- name: Enable and start nginx
+  ansible.builtin.service:
+    name: nginx
+    enabled: true
+    state: started

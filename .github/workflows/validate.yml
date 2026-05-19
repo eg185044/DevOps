@@ -1,0 +1,19 @@
+name: Validate Project
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  basic-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check project files
+        run: |
+          test -f README.md
+          test -f terraform/main.tf
+          test -f ansible/site.yml
+          test -f ansible/roles/nginx/tasks/main.yml
+          echo "Project structure looks good."

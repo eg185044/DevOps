@@ -1,0 +1,11 @@
+aws_region       = "eu-west-1"
+project_name     = "erez-cv-devops"
+owner            = "Erez Glik"
+key_name         = "aviad-01"
+allowed_ssh_cidr = "YOUR_PUBLIC_IP/32"
+sns_email        = "glikerez@gmail.com"
+db_name          = "erezcv"
+db_username      = "erezadmin"
+db_password      = "CHANGE_ME_STRONG_PASSWORD_123!"
+instance_type    = "t3.micro"
+create_rds       = true

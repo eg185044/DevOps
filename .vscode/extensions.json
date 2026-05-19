@@ -1,0 +1,8 @@
+{
+  "recommendations": [
+    "hashicorp.terraform",
+    "redhat.ansible",
+    "ms-azuretools.vscode-docker",
+    "amazonwebservices.aws-toolkit-vscode"
+  ]
+}

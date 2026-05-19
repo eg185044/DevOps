@@ -1,0 +1,30 @@
+# Static inventory example using the IPs you provided.
+# Use this only if these servers already exist and are reachable by SSH.
+# For Terraform-created AWS servers, generate inventory with:
+# terraform -chdir=terraform output -raw ansible_inventory > ansible/inventory.ini
+
+[frontend]
+frontend ansible_host=51.85.75.88 ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/aviad-01.pem
+
+[backend]
+backend ansible_host=51.85.75.87 ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/aviad-01.pem
+
+[worker]
+worker ansible_host=51.85.75.86 ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/aviad-01.pem
+
+[app_servers:children]
+frontend
+backend
+worker
+
+[all:vars]
+ansible_python_interpreter=/usr/bin/python3
+aws_region=eu-west-1
+backend_private_ip=51.85.75.87
+worker_private_ip=51.85.75.86
+rds_endpoint=CHANGE_ME
+db_name=erezcv
+db_username=erezadmin
+s3_bucket_name=CHANGE_ME
+sns_topic_arn=CHANGE_ME
+frontend_url=http://51.85.75.88

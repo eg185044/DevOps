@@ -1,0 +1,42 @@
+---
+- name: Create worker app folder
+  ansible.builtin.file:
+    path: "{{ app_root }}/worker"
+    state: directory
+    owner: ubuntu
+    group: ubuntu
+    mode: "0755"
+
+- name: Copy worker application
+  ansible.builtin.copy:
+    src: "../../../../app/worker/"
+    dest: "{{ app_root }}/worker/"
+    owner: ubuntu
+    group: ubuntu
+    mode: "0644"
+
+- name: Render worker env file
+  ansible.builtin.template:
+    src: worker.env.j2
+    dest: "{{ app_root }}/worker/.env"
+    owner: ubuntu
+    group: ubuntu
+    mode: "0600"
+
+- name: Build worker Docker image
+  ansible.builtin.command: docker build -t erez-cv-worker:latest .
+  args:
+    chdir: "{{ app_root }}/worker"
+  changed_when: true
+
+- name: Remove old worker container if exists
+  ansible.builtin.shell: docker rm -f erez-cv-worker || true
+  changed_when: false
+
+- name: Run worker container
+  ansible.builtin.command: >
+    docker run -d --name erez-cv-worker --restart unless-stopped
+    --env-file {{ app_root }}/worker/.env
+    -p {{ worker_port }}:5002
+    erez-cv-worker:latest
+  changed_when: true

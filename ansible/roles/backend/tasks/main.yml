@@ -1,0 +1,42 @@
+---
+- name: Create backend app folder
+  ansible.builtin.file:
+    path: "{{ app_root }}/backend"
+    state: directory
+    owner: ubuntu
+    group: ubuntu
+    mode: "0755"
+
+- name: Copy backend application
+  ansible.builtin.copy:
+    src: "../../../../app/backend/"
+    dest: "{{ app_root }}/backend/"
+    owner: ubuntu
+    group: ubuntu
+    mode: "0644"
+
+- name: Render backend env file
+  ansible.builtin.template:
+    src: backend.env.j2
+    dest: "{{ app_root }}/backend/.env"
+    owner: ubuntu
+    group: ubuntu
+    mode: "0600"
+
+- name: Build backend Docker image
+  ansible.builtin.command: docker build -t erez-cv-backend:latest .
+  args:
+    chdir: "{{ app_root }}/backend"
+  changed_when: true
+
+- name: Remove old backend container if exists
+  ansible.builtin.shell: docker rm -f erez-cv-backend || true
+  changed_when: false
+
+- name: Run backend container
+  ansible.builtin.command: >
+    docker run -d --name erez-cv-backend --restart unless-stopped
+    --env-file {{ app_root }}/backend/.env
+    -p {{ backend_port }}:5000
+    erez-cv-backend:latest
+  changed_when: true

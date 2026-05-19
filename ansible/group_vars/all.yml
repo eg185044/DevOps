@@ -1,0 +1,16 @@
+project_name: erez-cv-devops
+app_user: appuser
+app_root: /opt/erez-cv-platform
+frontend_root: /var/www/erez-cv
+backend_port: 5000
+worker_port: 5002
+nginx_server_name: _
+cv_pdf_name: Erez_Glick_Cv.pdf
+aws_region: "{{ aws_region | default('eu-west-1') }}"
+backend_private_ip: "{{ backend_private_ip | default('127.0.0.1') }}"
+worker_private_ip: "{{ worker_private_ip | default('127.0.0.1') }}"
+rds_endpoint: "{{ rds_endpoint | default('disabled') }}"
+db_name: "{{ db_name | default('erezcv') }}"
+db_username: "{{ db_username | default('erezadmin') }}"
+s3_bucket_name: "{{ s3_bucket_name | default('disabled') }}"
+sns_topic_arn: "{{ sns_topic_arn | default('disabled') }}"

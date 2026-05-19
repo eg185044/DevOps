@@ -1,0 +1,11 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    { "label": "Terraform Init", "type": "shell", "command": "terraform -chdir=terraform init", "problemMatcher": [] },
+    { "label": "Terraform Plan", "type": "shell", "command": "terraform -chdir=terraform plan -out=tfplan", "problemMatcher": [] },
+    { "label": "Terraform Apply", "type": "shell", "command": "terraform -chdir=terraform apply tfplan", "problemMatcher": [] },
+    { "label": "Generate Ansible Inventory", "type": "shell", "command": "terraform -chdir=terraform output -raw ansible_inventory > ansible/inventory.ini", "problemMatcher": [] },
+    { "label": "Ansible Run Terraform Plan", "type": "shell", "command": "cd ansible && ansible-playbook run-terraform.yml -e terraform_action=plan", "problemMatcher": [] },
+    { "label": "Ansible Run Terraform Apply", "type": "shell", "command": "cd ansible && ansible-playbook run-terraform.yml -e terraform_action=apply", "problemMatcher": [] }
+  ]
+}

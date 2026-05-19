@@ -1,0 +1,66 @@
+---
+- name: Base configuration for all app EC2 servers
+  hosts: app_servers
+  become: true
+  gather_facts: true
+  vars_files:
+    - group_vars/secrets-vault.yml
+
+  pre_tasks:
+    - name: Show target server
+      ansible.builtin.debug:
+        msg: "Configuring {{ inventory_hostname }} at {{ ansible_host }}"
+
+    - name: Wait for cloud-init to finish when present
+      ansible.builtin.command: cloud-init status --wait
+      changed_when: false
+      failed_when: false
+
+  roles:
+    - common
+    - docker
+
+  post_tasks:
+    - name: Confirm base configuration
+      ansible.builtin.debug:
+        msg: "Base completed for {{ inventory_hostname }}"
+
+- name: Deploy backend API Docker microservice
+  hosts: backend
+  become: true
+  vars_files:
+    - group_vars/secrets-vault.yml
+  roles:
+    - backend
+
+- name: Deploy worker Docker microservice
+  hosts: worker
+  become: true
+  vars_files:
+    - group_vars/secrets-vault.yml
+  roles:
+    - worker
+
+- name: Install and configure Nginx frontend role
+  hosts: frontend
+  become: true
+  vars_files:
+    - group_vars/secrets-vault.yml
+
+  pre_tasks:
+    - name: Display backend and worker upstreams
+      ansible.builtin.debug:
+        msg: "Backend={{ backend_private_ip }}:{{ backend_port }}, Worker={{ worker_private_ip }}:{{ worker_port }}"
+
+  roles:
+    - nginx
+
+  post_tasks:
+    - name: Test nginx local health endpoint
+      ansible.builtin.uri:
+        url: "http://127.0.0.1/health"
+        status_code: 200
+      register: nginx_health
+      retries: 5
+      delay: 3
+      until: nginx_health.status == 200

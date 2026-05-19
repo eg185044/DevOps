@@ -1,0 +1,23 @@
+---
+- name: Goal playbook - install nginx on EC2 using nginx role
+  hosts: frontend
+  become: true
+  gather_facts: true
+  vars_files:
+    - group_vars/secrets-vault.yml
+
+  pre_tasks:
+    - name: Confirm nginx target
+      ansible.builtin.debug:
+        msg: "Installing nginx role on {{ inventory_hostname }} {{ ansible_host }}"
+
+  roles:
+    - nginx
+
+  post_tasks:
+    - name: Validate nginx service is running
+      ansible.builtin.service_facts:
+
+    - name: Print nginx status
+      ansible.builtin.debug:
+        msg: "nginx status is {{ ansible_facts.services['nginx.service'].state | default('unknown') }}"

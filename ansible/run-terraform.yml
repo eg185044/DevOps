@@ -1,0 +1,89 @@
+---
+# Optional Ansible automation wrapper for Terraform.
+# Run from the Ansible controller or from WSL/Linux/macOS:
+#   ansible-playbook run-terraform.yml -e terraform_action=plan
+#   ansible-playbook run-terraform.yml -e terraform_action=apply
+#   ansible-playbook run-terraform.yml -e terraform_action=destroy
+
+- name: Run Terraform from Ansible
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    terraform_dir: "../terraform"
+    terraform_workspace: "dev"
+    terraform_action: "plan"  # plan | apply | destroy
+
+  pre_tasks:
+    - name: Validate requested Terraform action
+      ansible.builtin.assert:
+        that:
+          - terraform_action in ['plan', 'apply', 'destroy']
+        fail_msg: "terraform_action must be one of: plan, apply, destroy"
+
+  tasks:
+    - name: Ensure Terraform is initialized
+      ansible.builtin.command:
+        cmd: terraform init
+        chdir: "{{ terraform_dir }}"
+      changed_when: false
+
+    - name: Select Terraform workspace if it exists
+      ansible.builtin.command:
+        cmd: terraform workspace select {{ terraform_workspace }}
+        chdir: "{{ terraform_dir }}"
+      register: workspace_select
+      failed_when: false
+      changed_when: false
+
+    - name: Create Terraform workspace if it does not exist
+      ansible.builtin.command:
+        cmd: terraform workspace new {{ terraform_workspace }}
+        chdir: "{{ terraform_dir }}"
+      when: workspace_select.rc != 0
+
+    - name: Run Terraform plan
+      ansible.builtin.command:
+        cmd: terraform plan -out=tfplan
+        chdir: "{{ terraform_dir }}"
+      register: terraform_plan
+      when: terraform_action in ['plan', 'apply']
+
+    - name: Show Terraform plan output
+      ansible.builtin.debug:
+        var: terraform_plan.stdout_lines
+      when: terraform_action in ['plan', 'apply']
+
+    - name: Apply Terraform plan
+      ansible.builtin.command:
+        cmd: terraform apply -auto-approve tfplan
+        chdir: "{{ terraform_dir }}"
+      when: terraform_action == 'apply'
+
+    - name: Generate Ansible inventory from Terraform output
+      ansible.builtin.shell:
+        cmd: terraform output -raw ansible_inventory > ../ansible/inventory.ini
+        chdir: "{{ terraform_dir }}"
+      when: terraform_action == 'apply'
+
+    - name: Destroy Terraform infrastructure
+      ansible.builtin.command:
+        cmd: terraform destroy -auto-approve
+        chdir: "{{ terraform_dir }}"
+      when: terraform_action == 'destroy'
+
+  post_tasks:
+    - name: Show Terraform outputs after apply/plan
+      ansible.builtin.command:
+        cmd: terraform output
+        chdir: "{{ terraform_dir }}"
+      register: terraform_output
+      changed_when: false
+      failed_when: false
+      when: terraform_action in ['plan', 'apply']
+
+    - name: Print Terraform outputs
+      ansible.builtin.debug:
+        var: terraform_output.stdout_lines
+      when: terraform_action in ['plan', 'apply']
