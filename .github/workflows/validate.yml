@@ -17,3 +17,4 @@ jobs:
           test -f ansible/site.yml
           test -f ansible/roles/nginx/tasks/main.yml
           echo "Project structure looks good."
+
