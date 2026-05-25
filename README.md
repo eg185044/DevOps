@@ -1,4 +1,7 @@
-# Erez Glik AWS DevOps CV Platform
+# Erez Glick AWS DevOps CV Platform 1
+
+## https://www.linkedin.com/in/erezglik/
+
 
 One refined project made from **Project12**.
 
@@ -108,9 +111,9 @@ Put your key here:
 
 ```powershell
 mkdir $env:USERPROFILE\.ssh -Force
-copy C:\path\to\aviad-01.pem $env:USERPROFILE\.ssh\aviad-01.pem
-icacls $env:USERPROFILE\.ssh\aviad-01.pem /inheritance:r
-icacls $env:USERPROFILE\.ssh\aviad-01.pem /grant:r "$env:USERNAME:R"
+copy C:\path\to\erezg01.pem $env:USERPROFILE\.ssh\erezg01.pem
+icacls $env:USERPROFILE\.ssh\erezg01.pem /inheritance:r
+icacls $env:USERPROFILE\.ssh\erezg01.pem /grant:r "$env:USERNAME:R"
 ```
 
 ### 4. Create Terraform variables
@@ -123,8 +126,8 @@ notepad terraform\terraform.tfvars
 Update:
 
 ```hcl
-key_name              = "aviad-01"
-ssh_private_key_path  = "~/.ssh/aviad-01.pem"
+key_name              = "erezg01"
+ssh_private_key_path  = "~/.ssh/erezg01.pem"
 allowed_ssh_cidr      = "YOUR_PUBLIC_IP/32"
 sns_email             = "your.mail@example.com"
 db_password           = "StrongPasswordHere!"
@@ -144,13 +147,13 @@ terraform -chdir=terraform output -raw ansible_inventory > ansible\inventory.ini
 
 ```powershell
 $controller = terraform -chdir=terraform output -raw ansible_controller_public_ip
-.\scripts\copy-to-controller.ps1 -ControllerIp $controller -KeyPath "$env:USERPROFILE\.ssh\aviad-01.pem"
+.\scripts\copy-to-controller.ps1 -ControllerIp $controller -KeyPath "$env:USERPROFILE\.ssh\erezg01.pem"
 ```
 
 ### 7. SSH to the Ansible Controller
 
 ```powershell
-ssh -i "$env:USERPROFILE\.ssh\aviad-01.pem" ubuntu@$controller
+ssh -i "$env:USERPROFILE\.ssh\erezg01.pem" ubuntu@$controller
 ```
 
 ### 8. Bootstrap controller
@@ -256,3 +259,4 @@ Do not commit:
 - `.vault_pass`
 
 Use example files only in Git.
+

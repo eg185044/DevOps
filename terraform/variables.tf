@@ -31,7 +31,7 @@ variable "instance_type" {
 variable "key_name" {
   description = "Existing AWS EC2 key pair name"
   type        = string
-  default     = "aviad-01"
+  default     = "erezg01"
 }
 
 variable "allowed_ssh_cidr" {

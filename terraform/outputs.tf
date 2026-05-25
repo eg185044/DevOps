@@ -53,13 +53,13 @@ output "sns_topic_arn" {
 output "ansible_inventory" {
   value = <<EOT
 [frontend]
-frontend ansible_host=${aws_instance.frontend.private_ip} ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/aviad-01.pem private_ip=${aws_instance.frontend.private_ip}
+frontend ansible_host=${aws_instance.frontend.private_ip} ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/erezg01.pem private_ip=${aws_instance.frontend.private_ip}
 
 [backend]
-backend ansible_host=${aws_instance.backend.private_ip} ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/aviad-01.pem private_ip=${aws_instance.backend.private_ip}
+backend ansible_host=${aws_instance.backend.private_ip} ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/erezg01.pem private_ip=${aws_instance.backend.private_ip}
 
 [worker]
-worker ansible_host=${aws_instance.worker.private_ip} ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/aviad-01.pem private_ip=${aws_instance.worker.private_ip}
+worker ansible_host=${aws_instance.worker.private_ip} ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/erezg01.pem private_ip=${aws_instance.worker.private_ip}
 
 [app_servers:children]
 frontend

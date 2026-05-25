@@ -57,14 +57,14 @@ aws sts get-caller-identity
 
 AWS Console -> EC2 -> Key Pairs -> Create key pair:
 
-- Name: `aviad-01`
+- Name: `erezg01`
 - Type: RSA
 - Format: `.pem`
 
 Save as:
 
 ```text
-C:\Users\YOUR_WINDOWS_USER\.ssh\aviad-01.pem
+C:\Users\YOUR_WINDOWS_USER\.ssh\erezg01.pem
 ```
 
 ## Step 3 - Prepare Terraform variables
@@ -81,7 +81,7 @@ Edit `terraform/terraform.tfvars`:
 allowed_ssh_cidr = "YOUR_PUBLIC_IP/32"
 sns_email        = "glikerez@gmail.com"
 db_password      = "CHANGE_ME_STRONG_PASSWORD_123!"
-key_name         = "aviad-01"
+key_name         = "erezg01"
 ```
 
 Get your public IP:
@@ -117,8 +117,8 @@ terraform output website_url_nlb
 Replace `ANSIBLE_CONTROLLER_PUBLIC_IP` with Terraform output.
 
 ```powershell
-scp -i $env:USERPROFILE\.ssh\aviad-01.pem $env:USERPROFILE\.ssh\aviad-01.pem ubuntu@ANSIBLE_CONTROLLER_PUBLIC_IP:/home/ubuntu/.ssh/aviad-01.pem
-ssh -i $env:USERPROFILE\.ssh\aviad-01.pem ubuntu@ANSIBLE_CONTROLLER_PUBLIC_IP "chmod 600 /home/ubuntu/.ssh/aviad-01.pem"
+scp -i $env:USERPROFILE\.ssh\erezg01.pem $env:USERPROFILE\.ssh\erezg01.pem ubuntu@ANSIBLE_CONTROLLER_PUBLIC_IP:/home/ubuntu/.ssh/erezg01.pem
+ssh -i $env:USERPROFILE\.ssh\erezg01.pem ubuntu@ANSIBLE_CONTROLLER_PUBLIC_IP "chmod 600 /home/ubuntu/.ssh/erezg01.pem"
 ```
 
 ## Step 7 - Copy project to Ansible controller
@@ -126,7 +126,7 @@ ssh -i $env:USERPROFILE\.ssh\aviad-01.pem ubuntu@ANSIBLE_CONTROLLER_PUBLIC_IP "c
 From the parent folder of this project:
 
 ```powershell
-scp -i $env:USERPROFILE\.ssh\aviad-01.pem -r .\aws-devops-cv-ansible-project ubuntu@ANSIBLE_CONTROLLER_PUBLIC_IP:/home/ubuntu/project
+scp -i $env:USERPROFILE\.ssh\erezg01.pem -r .\aws-devops-cv-ansible-project ubuntu@ANSIBLE_CONTROLLER_PUBLIC_IP:/home/ubuntu/project
 ```
 
 Or push to GitHub and clone from the controller:
@@ -138,14 +138,14 @@ git clone YOUR_REPO_URL /home/ubuntu/project
 ## Step 8 - SSH to Ansible controller
 
 ```powershell
-ssh -i $env:USERPROFILE\.ssh\aviad-01.pem ubuntu@ANSIBLE_CONTROLLER_PUBLIC_IP
+ssh -i $env:USERPROFILE\.ssh\erezg01.pem ubuntu@ANSIBLE_CONTROLLER_PUBLIC_IP
 ```
 
 Then on the controller:
 
 ```bash
 cd /home/ubuntu/project
-chmod 600 ~/.ssh/aviad-01.pem
+chmod 600 ~/.ssh/erezg01.pem
 ansible --version
 ```
 

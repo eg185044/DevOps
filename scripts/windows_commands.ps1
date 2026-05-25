@@ -4,7 +4,7 @@
 terraform version
 aws --version
 
-cd terraform
+Set-Location terraform
 terraform init
 terraform fmt -recursive
 terraform validate

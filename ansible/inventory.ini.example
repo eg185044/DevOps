@@ -4,13 +4,13 @@
 # terraform -chdir=terraform output -raw ansible_inventory > ansible/inventory.ini
 
 [frontend]
-frontend ansible_host=51.85.75.88 ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/aviad-01.pem
+frontend ansible_host=51.85.75.88 ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/erezg01.pem
 
 [backend]
-backend ansible_host=51.85.75.87 ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/aviad-01.pem
+backend ansible_host=51.85.75.87 ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/erezg01.pem
 
 [worker]
-worker ansible_host=51.85.75.86 ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/aviad-01.pem
+worker ansible_host=51.85.75.86 ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/erezg01.pem
 
 [app_servers:children]
 frontend
