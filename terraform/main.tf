@@ -76,6 +76,54 @@ resource "aws_route_table_association" "public_b" {
   route_table_id = aws_route_table.public.id
 }
 
+resource "aws_subnet" "private_a" {
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = "10.20.3.0/24"
+  availability_zone = "${var.aws_region}a"
+  tags              = merge(local.common_tags, { Name = "${var.project_name}-private-a" })
+}
+
+resource "aws_subnet" "private_b" {
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = "10.20.4.0/24"
+  availability_zone = "${var.aws_region}b"
+  tags              = merge(local.common_tags, { Name = "${var.project_name}-private-b" })
+}
+
+resource "aws_eip" "nat" {
+  domain     = "vpc"
+  depends_on = [aws_internet_gateway.main]
+  tags       = merge(local.common_tags, { Name = "${var.project_name}-nat-eip" })
+}
+
+resource "aws_nat_gateway" "main" {
+  allocation_id = aws_eip.nat.id
+  subnet_id     = aws_subnet.public_a.id
+  depends_on    = [aws_internet_gateway.main]
+  tags          = merge(local.common_tags, { Name = "${var.project_name}-nat-gw" })
+}
+
+resource "aws_route_table" "private" {
+  vpc_id = aws_vpc.main.id
+
+  route {
+    cidr_block     = "0.0.0.0/0"
+    nat_gateway_id = aws_nat_gateway.main.id
+  }
+
+  tags = merge(local.common_tags, { Name = "${var.project_name}-private-rt" })
+}
+
+resource "aws_route_table_association" "private_a" {
+  subnet_id      = aws_subnet.private_a.id
+  route_table_id = aws_route_table.private.id
+}
+
+resource "aws_route_table_association" "private_b" {
+  subnet_id      = aws_subnet.private_b.id
+  route_table_id = aws_route_table.private.id
+}
+
 resource "aws_security_group" "ansible" {
   name        = "${var.project_name}-ansible-sg"
   description = "Ansible controller SSH"
@@ -165,14 +213,6 @@ resource "aws_security_group" "app" {
     to_port         = 22
     protocol        = "tcp"
     security_groups = [aws_security_group.ansible.id]
-  }
-
-  ingress {
-    description = "Emergency SSH from your laptop"
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = [var.allowed_ssh_cidr]
   }
 
   egress {
@@ -276,7 +316,7 @@ resource "aws_iam_role_policy" "ec2_policy" {
 resource "aws_db_subnet_group" "main" {
   count      = var.create_rds ? 1 : 0
   name       = "${var.project_name}-db-subnet-group"
-  subnet_ids = [aws_subnet.public_a.id, aws_subnet.public_b.id]
+  subnet_ids = [aws_subnet.private_a.id, aws_subnet.private_b.id]
   tags       = local.common_tags
 }
 
@@ -313,7 +353,7 @@ resource "aws_instance" "frontend" {
 resource "aws_instance" "backend" {
   ami                    = var.ami_id == "" ? data.aws_ami.ubuntu[0].id : var.ami_id
   instance_type          = var.instance_type
-  subnet_id              = aws_subnet.public_a.id
+  subnet_id              = aws_subnet.private_a.id
   vpc_security_group_ids = [aws_security_group.app.id]
   key_name               = var.key_name
   iam_instance_profile   = aws_iam_instance_profile.ec2_profile.name
@@ -324,7 +364,7 @@ resource "aws_instance" "backend" {
 resource "aws_instance" "worker" {
   ami                    = var.ami_id == "" ? data.aws_ami.ubuntu[0].id : var.ami_id
   instance_type          = var.instance_type
-  subnet_id              = aws_subnet.public_b.id
+  subnet_id              = aws_subnet.private_b.id
   vpc_security_group_ids = [aws_security_group.app.id]
   key_name               = var.key_name
   iam_instance_profile   = aws_iam_instance_profile.ec2_profile.name
@@ -396,4 +436,3 @@ resource "aws_lb_listener" "http" {
     target_group_arn = aws_lb_target_group.frontend_http.arn
   }
 }
-

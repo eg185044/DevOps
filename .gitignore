@@ -7,12 +7,19 @@ crash.*.log
 terraform.tfvars
 *.tfvars.json
 .terraform.lock.hcl
+tfplan
+*.tfplan
 
 # Secrets
 *.pem
 *.key
 .env
+.vault_pass
 group_vars/vault.yml
+group_vars/secrets-vault.yml
+
+# Generated Ansible inventory (may contain real IPs)
+ansible/inventory.ini
 
 # Python
 __pycache__/

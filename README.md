@@ -23,17 +23,34 @@ Windows 11 + VS Code
   |
   | Terraform
   v
-AWS Cloud
-  |-- VPC, subnets, route tables, security groups
+AWS Cloud  (VPC 10.20.0.0/16)
+  |
+  |-- PUBLIC TIER (Internet-facing)
+  |     |-- Internet Gateway
+  |     |-- NAT Gateway (outbound for private tier)
+  |     |-- Public Subnet A (10.20.1.0/24, eu-west-1a)
+  |     |     |-- EC2 Ansible Controller  [Terraform + Ansible]
+  |     |     |-- EC2 Frontend: nginx + CV page
+  |     |-- Public Subnet B (10.20.2.0/24, eu-west-1b)
+  |     |-- Network Load Balancer -> Frontend nginx (port 80)
+  |
+  |-- PRIVATE TIER (No direct internet access)
+  |     |-- Private Subnet A (10.20.3.0/24, eu-west-1a)
+  |     |     |-- EC2 Backend: Flask API in Docker (port 5000)
+  |     |     |-- RDS PostgreSQL (port 5432)
+  |     |-- Private Subnet B (10.20.4.0/24, eu-west-1b)
+  |           |-- EC2 Worker: Python worker in Docker (port 5002)
+  |           |-- RDS PostgreSQL (Multi-AZ standby)
+  |
   |-- IAM role for EC2 access to S3 and SNS
-  |-- EC2 Ansible Controller
-  |-- EC2 Frontend: nginx + CV page
-  |-- EC2 Backend: Flask API in Docker
-  |-- EC2 Worker: Python worker in Docker
-  |-- Network Load Balancer -> Frontend nginx
-  |-- RDS PostgreSQL
-  |-- S3 bucket
-  |-- SNS topic + email subscription
+  |-- S3 bucket (CV file storage)
+  |-- SNS topic + email subscription (events)
+
+Security group rules:
+  Frontend SG  <- HTTP :80 from 0.0.0.0/0, SSH :22 from Ansible SG + your IP
+  App SG       <- :5000/:5002 from Frontend SG, SSH :22 from Ansible SG only
+  RDS SG       <- :5432 from App SG only
+  Ansible SG   <- SSH :22 from your IP only
 ```
 
 ---
@@ -43,9 +60,11 @@ AWS Cloud
 Terraform creates the AWS infrastructure:
 
 - VPC
-- Public subnets
+- Public subnets (frontend, Ansible Controller, NLB)
+- Private subnets (backend, worker, RDS)
 - Internet Gateway
-- Route table
+- NAT Gateway (outbound internet for private instances)
+- Route tables (public and private)
 - Security groups
 - IAM role and instance profile
 - Ansible Controller EC2
@@ -247,6 +266,33 @@ http://NLB_DNS_NAME/api/sns/publish
 ```powershell
 terraform -chdir=terraform destroy
 ```
+
+---
+
+## Terraform state
+
+### This project (local state)
+
+By default Terraform stores state in `terraform/terraform.tfstate` on your local machine. This is fine for a single-developer course project: it is simple, requires no extra infrastructure, and state is never shared. The file is excluded from Git via `.gitignore` to avoid leaking resource IDs and sensitive output values.
+
+### Production recommendation (remote state)
+
+In a team or production environment, local state causes conflicts when multiple engineers run Terraform simultaneously and is lost if the workstation is destroyed. The standard AWS pattern is an S3 backend with DynamoDB locking:
+
+```hcl
+# Add to terraform/providers.tf before running terraform init
+terraform {
+  backend "s3" {
+    bucket         = "my-org-terraform-state"
+    key            = "erez-cv-devops/terraform.tfstate"
+    region         = "eu-west-1"
+    encrypt        = true
+    dynamodb_table = "terraform-state-lock"
+  }
+}
+```
+
+Create the S3 bucket and DynamoDB table once (manually or with a bootstrap Terraform module), then run `terraform init` to migrate existing local state to the remote backend. With this setup, state is encrypted at rest, versioned, and locked during operations so concurrent runs cannot corrupt it.
 
 ---
 
