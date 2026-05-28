@@ -1,12 +1,12 @@
-# Erez Glick AWS DevOps CV Platform 1
+# Erez Glick AWS DevOps PWA_CV Platform.
 
 ## https://www.linkedin.com/in/erezglik/
 
 ### https://marstick.com/en/
 
-One refined project made from **Project12**.
+One refined project made from **Erez Glick Project**.
 
-The goal is to create a complete AWS DevOps flow :
+The Main goal is to create a complete AWS DevOps flow :
 
 ```text
 AWS -> IAM -> EC2 -> Terraform -> Ansible Controller -> Docker Runtime -> Microservices -> nginx Role -> CV Page
@@ -306,4 +306,3 @@ Do not commit:
 - `.vault_pass`
 
 Use example files only in Git.
-
