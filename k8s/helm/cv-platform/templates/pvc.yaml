@@ -1,0 +1,15 @@
+{{- if .Values.redis.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "cv-platform.fullname" . }}-redis-data
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "cv-platform.componentLabels" (dict "context" . "component" "redis-cache") | nindent 4 }}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: {{ .Values.redis.storageClassName }}
+  resources:
+    requests:
+      storage: {{ .Values.redis.storageSize }}
+{{- end }}

@@ -1,0 +1,105 @@
+{{- if .Values.networkPolicies.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "cv-platform.fullname" . }}-default-deny-ingress
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "cv-platform.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress"]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "cv-platform.fullname" . }}-allow-ingress-to-frontend
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "cv-platform.componentLabels" (dict "context" . "component" "frontend") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "cv-platform.componentSelectorLabels" (dict "context" . "component" "frontend") | nindent 6 }}
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "cv-platform.fullname" . }}-allow-backend-from-frontend
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "cv-platform.componentLabels" (dict "context" . "component" "backend") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "cv-platform.componentSelectorLabels" (dict "context" . "component" "backend") | nindent 6 }}
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "cv-platform.componentSelectorLabels" (dict "context" . "component" "frontend") | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: 5000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "cv-platform.fullname" . }}-allow-worker-from-frontend
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "cv-platform.componentLabels" (dict "context" . "component" "worker") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "cv-platform.componentSelectorLabels" (dict "context" . "component" "worker") | nindent 6 }}
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "cv-platform.componentSelectorLabels" (dict "context" . "component" "frontend") | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: 5002
+{{- if .Values.redis.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "cv-platform.fullname" . }}-allow-redis-from-backend-worker
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "cv-platform.componentLabels" (dict "context" . "component" "redis-cache") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "cv-platform.componentSelectorLabels" (dict "context" . "component" "redis-cache") | nindent 6 }}
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "cv-platform.componentSelectorLabels" (dict "context" . "component" "backend") | nindent 14 }}
+        - podSelector:
+            matchLabels:
+              {{- include "cv-platform.componentSelectorLabels" (dict "context" . "component" "worker") | nindent 14 }}
+        - podSelector:
+            matchLabels:
+              {{- include "cv-platform.componentSelectorLabels" (dict "context" . "component" "cache-cleanup") | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: 6379
+{{- end }}
+{{- end }}

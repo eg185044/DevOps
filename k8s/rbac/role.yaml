@@ -1,0 +1,17 @@
+# Read-only, namespace-scoped. Deliberately excludes secrets - a "viewer" role
+# should never be able to read Secret *values* (only that a Secret object exists).
+# No workload uses this Role; see rolebinding.yaml for why, and serviceaccounts.yaml
+# for diagnostics-sa. There is no ClusterRole and no cluster-admin binding anywhere
+# in this project, per the assignment's explicit "no cluster-admin for the app" rule.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: namespace-viewer
+  namespace: devops-app
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "configmaps", "endpoints"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets"]
+    verbs: ["get", "list", "watch"]

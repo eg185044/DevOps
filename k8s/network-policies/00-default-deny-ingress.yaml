@@ -1,0 +1,17 @@
+# Zero-trust baseline: nothing in devops-app can receive traffic from
+# anywhere unless a more specific policy below explicitly allows it.
+# Egress is intentionally left unrestricted by this project (see
+# k8s/README.md "Network Security" trade-offs section) - backend and worker
+# need outbound access to RDS, S3, SNS and DNS, and modelling that correctly
+# with NetworkPolicy egress rules needs cluster/VPC CIDR knowledge that
+# varies per environment; egress control is instead enforced at the AWS
+# Security Group level (terraform/main.tf: aws_security_group.app/rds).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: devops-app
+spec:
+  podSelector: {} # every Pod in this namespace
+  policyTypes:
+    - Ingress

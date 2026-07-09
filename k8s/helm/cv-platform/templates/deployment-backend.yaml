@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "cv-platform.fullname" . }}-backend
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "cv-platform.componentLabels" (dict "context" . "component" "backend") | nindent 4 }}
+spec:
+  replicas: {{ .Values.backend.replicas }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxUnavailable: 1, maxSurge: 1 }
+  selector:
+    matchLabels:
+      {{- include "cv-platform.componentSelectorLabels" (dict "context" . "component" "backend") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "cv-platform.componentLabels" (dict "context" . "component" "backend") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "cv-platform.fullname" . }}-backend-sa
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    {{- include "cv-platform.componentSelectorLabels" (dict "context" . "component" "backend") | nindent 20 }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: backend
+          image: "{{ .Values.image.registry }}/{{ .Values.backend.image }}:{{ .Values.backend.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 5000
+          envFrom:
+            - configMapRef: { name: {{ include "cv-platform.fullname" . }}-app-config }
+            - secretRef: { name: {{ include "cv-platform.fullname" . }}-db-credentials }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            {{- toYaml .Values.backend.resources | nindent 12 }}
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          startupProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 5
+            failureThreshold: 12
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

@@ -1,0 +1,24 @@
+# Cache tier: only backend/worker Pods (or the cache-cleanup CronJob, which
+# runs as tier=cache itself) may talk to redis-cache. Frontend has no
+# business reaching it directly.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-redis-from-backend-worker
+  namespace: devops-app
+spec:
+  podSelector:
+    matchLabels: { app: redis-cache, tier: cache }
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: { app: backend, tier: backend }
+        - podSelector:
+            matchLabels: { app: worker, tier: worker }
+        - podSelector:
+            matchLabels: { app: cache-cleanup, tier: cache }
+      ports:
+        - protocol: TCP
+          port: 6379

@@ -1,0 +1,46 @@
+# Dev overlay - only the keys that differ from values.yaml go here.
+# Usage:
+#   helm upgrade --install cv-platform-dev ./k8s/helm/cv-platform \
+#     -f ./k8s/helm/cv-platform/values.yaml \
+#     -f ./k8s/helm/cv-platform/values-dev.yaml \
+#     --set secrets.dbHost=... --set secrets.dbPassword=$DB_PASSWORD
+# (ArgoCD does the equivalent `-f` layering itself - see argocd/cv-platform-dev-application.yaml)
+
+# Separate namespace from prod so `helm install cv-platform-dev` and
+# `helm install cv-platform-prod` can both exist on the same cluster at once
+# without ever touching each other's Pods/Services/Secrets.
+namespace: devops-app-dev
+
+# Smallest footprint that still exercises the RollingUpdate / anti-affinity /
+# probe logic - a dev box rarely needs 2-3 replicas per tier.
+frontend:
+  replicas: 1
+backend:
+  replicas: 1
+worker:
+  replicas: 1
+
+redis:
+  enabled: true
+
+ingress:
+  host: cv-dev.example.com
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+
+config:
+  environment: development
+
+# Convenience for local/dev use only - lets the chart render its own
+# db-credentials Secret from --set flags instead of requiring a pre-created
+# one. Never do this for values-prod.yaml (see its own comment).
+secrets:
+  create: true
+
+# Dev clusters (kind/k3d/minikube) usually don't ship a CNI that enforces
+# NetworkPolicy, so a "deny by default" policy would just silently do
+# nothing there anyway while making local curl/debugging confusing on
+# clusters that *do* enforce it (e.g. Calico on a real EKS dev cluster).
+# Flip to true if your dev cluster's CNI supports it and you want parity.
+networkPolicies:
+  enabled: false

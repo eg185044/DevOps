@@ -1,0 +1,4 @@
+# Prod overlay - only what differs from values.yaml.
+replicaCount: 3
+image:
+  tag: "1.27-alpine"

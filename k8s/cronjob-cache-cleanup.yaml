@@ -1,0 +1,44 @@
+# Nightly cache flush for the optional redis-cache tier (deployment-redis.yaml).
+# concurrencyPolicy: Forbid means if one run is still going at the next
+# scheduled time (e.g. redis is slow to respond), Kubernetes skips starting a
+# second overlapping run rather than stacking them up.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cache-cleanup
+  namespace: devops-app
+  labels: { app: cache-cleanup, tier: cache }
+spec:
+  schedule: "0 0 * * *" # every day at 00:00
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels: { app: cache-cleanup, tier: cache }
+        spec:
+          restartPolicy: Never
+          serviceAccountName: redis-sa
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+            seccompProfile: { type: RuntimeDefault }
+          containers:
+            - name: cache-cleanup
+              image: redis:7.2-alpine
+              imagePullPolicy: IfNotPresent
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: { drop: ["ALL"] }
+              resources:
+                requests: { cpu: "50m", memory: "32Mi" }
+                limits: { cpu: "100m", memory: "64Mi" }
+              command: ["sh", "-c"]
+              args:
+                - |
+                  echo "Clearing expired cache..."
+                  redis-cli -h redis-svc.devops-app.svc.cluster.local FLUSHDB

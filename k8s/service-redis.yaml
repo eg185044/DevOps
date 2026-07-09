@@ -1,0 +1,16 @@
+# Internal-only cache tier Service. Same headless-vs-ClusterIP trade-off as
+# any single-instance stateful workload: ClusterIP is enough since there's
+# exactly one Pod behind it (see deployment-redis.yaml note on replicas: 1).
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-svc
+  namespace: devops-app
+  labels: { app: redis-cache, tier: cache }
+spec:
+  type: ClusterIP
+  selector: { app: redis-cache, tier: cache }
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis

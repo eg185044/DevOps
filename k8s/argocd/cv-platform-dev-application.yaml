@@ -1,0 +1,50 @@
+# ArgoCD "Application" = one GitOps pairing of (a) where the desired state
+# lives in Git and (b) which cluster/namespace it should be reconciled into.
+# This one tracks k8s/helm/cv-platform on the `main` branch, rendered with
+# values.yaml + values-dev.yaml, into the devops-app-dev namespace.
+#
+# Apply once, by hand, with kubectl (this file itself is the one piece of
+# ArgoCD config that is NOT deployed via ArgoCD - something has to bootstrap
+# ArgoCD's knowledge of "go watch this Git path" in the first place):
+#   kubectl apply -n argocd -f k8s/argocd/cv-platform-dev-application.yaml
+# From then on, every change to the chart or these values files happens by
+# editing files in Git and letting ArgoCD's autosync pick it up - see
+# k8s/argocd/README.md for the full walkthrough.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cv-platform-dev
+  namespace: argocd
+  finalizers:
+    # Ensures `kubectl delete application cv-platform-dev` also deletes the
+    # Kubernetes resources it created, instead of orphaning them.
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/eg185044/DevOps.git
+    targetRevision: main
+    path: k8s/helm/cv-platform
+    helm:
+      releaseName: cv-platform-dev
+      valueFiles:
+        - values.yaml
+        - values-dev.yaml
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: devops-app-dev
+
+  syncPolicy:
+    automated:
+      # Self Heal: if someone runs `kubectl scale`/`kubectl edit` directly
+      # against the cluster, ArgoCD reverts it back to what Git says within
+      # seconds (Git stays the only real source of truth).
+      selfHeal: true
+      # Prune: if a resource is removed from the chart's rendered output
+      # (e.g. the Ingress template is deleted from Git), ArgoCD deletes the
+      # matching live resource instead of leaving it behind as an orphan.
+      prune: true
+    syncOptions:
+      - RespectIgnoreDifferences=true

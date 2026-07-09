@@ -1,0 +1,31 @@
+# The chart used for the Part 2 ArgoCD *practical* walkthrough (Auto Sync /
+# Self Heal / Prune demo) in k8s/argocd/README.md - deliberately the small
+# student-web chart, not cv-platform, so the demo has nothing else going on
+# to distract from observing ArgoCD's behavior.
+#   kubectl create namespace student-web --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl apply -n argocd -f k8s/argocd/student-web-application.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: student-web
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/eg185044/DevOps.git
+    targetRevision: main
+    path: k8s/helm/student-web
+    helm:
+      releaseName: student-web
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: student-web
+
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true

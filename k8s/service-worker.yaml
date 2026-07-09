@@ -1,0 +1,14 @@
+# Internal-only, same rationale as backend-svc: never exposed to the internet.
+apiVersion: v1
+kind: Service
+metadata:
+  name: worker-svc
+  namespace: devops-app
+  labels: { app: worker, tier: worker }
+spec:
+  type: ClusterIP
+  selector: { app: worker, tier: worker }
+  ports:
+    - name: http
+      port: 5002
+      targetPort: http

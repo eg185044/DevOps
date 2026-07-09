@@ -1,0 +1,9 @@
+# Dedicated namespace for the CV platform. The `default` namespace is never used
+# (assignment 3 requirement) so RBAC, NetworkPolicies and quotas stay scoped here.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: devops-app
+  labels:
+    app.kubernetes.io/part-of: erez-cv-platform
+    env: production

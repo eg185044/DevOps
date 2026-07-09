@@ -1,0 +1,75 @@
+# Backend Flask API (app/backend/app.py). Never exposed directly to the
+# internet - only reachable in-cluster via service-backend.yaml, and only
+# from frontend Pods once network-policies/20-allow-backend-from-frontend.yaml
+# is applied.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: devops-app
+  labels: { app: backend, tier: backend, env: production }
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels: { app: backend, tier: backend }
+  template:
+    metadata:
+      labels: { app: backend, tier: backend, env: production }
+    spec:
+      serviceAccountName: backend-sa
+      automountServiceAccountToken: true # needed for the IRSA token projection
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels: { app: backend, tier: backend }
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: backend
+          image: REPLACE_ME_REGISTRY/erez-cv-devops-backend:1.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 5000
+          envFrom:
+            - configMapRef: { name: app-config }
+            - secretRef: { name: db-credentials }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: "100m", memory: "128Mi" }
+            limits: { cpu: "250m", memory: "256Mi" }
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            # Deliberately NOT checking DB/S3/SNS connectivity here - see
+            # k8s/README.md "Probes" section for why that would cause
+            # cascading restarts instead of fixing the real outage.
+          startupProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 5
+            failureThreshold: 12 # up to 60s to boot before liveness takes over
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

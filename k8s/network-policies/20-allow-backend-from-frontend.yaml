@@ -1,0 +1,22 @@
+# Backend only accepts traffic from frontend Pods (the nginx reverse proxy's
+# /api/ location). Nothing else in the namespace, and nothing outside the
+# cluster, can reach it - this is what "backend is never exposed to the
+# internet" means enforced in-cluster, on top of it also not having a
+# Service/Ingress that faces outward.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backend-from-frontend
+  namespace: devops-app
+spec:
+  podSelector:
+    matchLabels: { app: backend, tier: backend }
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: { app: frontend, tier: frontend }
+      ports:
+        - protocol: TCP
+          port: 5000

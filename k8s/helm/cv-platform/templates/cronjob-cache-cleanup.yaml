@@ -1,0 +1,44 @@
+{{- if .Values.redis.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "cv-platform.fullname" . }}-cache-cleanup
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "cv-platform.componentLabels" (dict "context" . "component" "cache-cleanup") | nindent 4 }}
+spec:
+  schedule: "0 0 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            {{- include "cv-platform.componentLabels" (dict "context" . "component" "cache-cleanup") | nindent 12 }}
+        spec:
+          restartPolicy: Never
+          serviceAccountName: {{ include "cv-platform.fullname" . }}-redis-sa
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+            seccompProfile: { type: RuntimeDefault }
+          containers:
+            - name: cache-cleanup
+              image: "{{ .Values.redis.image }}:{{ .Values.redis.tag }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: { drop: ["ALL"] }
+              resources:
+                requests: { cpu: "50m", memory: "32Mi" }
+                limits: { cpu: "100m", memory: "64Mi" }
+              command: ["sh", "-c"]
+              args:
+                - |
+                  echo "Clearing expired cache..."
+                  redis-cli -h {{ include "cv-platform.fullname" . }}-redis-svc.{{ .Values.namespace }}.svc.cluster.local FLUSHDB
+{{- end }}

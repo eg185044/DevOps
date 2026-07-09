@@ -1,0 +1,68 @@
+{{- if .Values.redis.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "cv-platform.fullname" . }}-redis-cache
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "cv-platform.componentLabels" (dict "context" . "component" "redis-cache") | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "cv-platform.componentSelectorLabels" (dict "context" . "component" "redis-cache") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "cv-platform.componentLabels" (dict "context" . "component" "redis-cache") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "cv-platform.fullname" . }}-redis-sa
+      automountServiceAccountToken: false
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: {{ .Values.redis.preferredNodeLabel.key }}
+                    operator: In
+                    values: [{{ .Values.redis.preferredNodeLabel.value | quote }}]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        fsGroup: 999
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: redis
+          image: "{{ .Values.redis.image }}:{{ .Values.redis.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: redis
+              containerPort: 6379
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            {{- toYaml .Values.redis.resources | nindent 12 }}
+          livenessProbe:
+            tcpSocket: { port: redis }
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            tcpSocket: { port: redis }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: redis-data
+          persistentVolumeClaim: { claimName: {{ include "cv-platform.fullname" . }}-redis-data }
+        - name: tmp
+          emptyDir: {}
+{{- end }}

@@ -1,0 +1,9 @@
+apiVersion: v2
+name: cv-platform
+description: >-
+  Erez Glik CV platform (frontend/nginx + backend + worker + optional
+  redis cache) - the Helm equivalent of the plain manifests in k8s/*.yaml.
+  Bonus deliverable per the "DevOps on AWS - Kubernetes" assignment.
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

@@ -1,0 +1,75 @@
+# OPTIONAL / bonus cache tier (from assignment 2's "flash sale" exercise),
+# wired to this real project instead of a synthetic scenario: an opt-in cache
+# any service can reach at redis-svc:6379. Nothing in app/backend or
+# app/worker calls it today - it exists to demonstrate PVC + nodeAffinity and
+# is safe to delete without breaking the app.
+#
+# Note: a Deployment + ReadWriteOnce PVC only works safely at replicas: 1.
+# Scaling this past 1 replica would leave the 2nd Pod stuck Pending (the PVC
+# can't attach to two nodes at once); a StatefulSet with volumeClaimTemplates
+# is the correct pattern for a scaled Redis, not a Deployment.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-cache
+  namespace: devops-app
+  labels: { app: redis-cache, tier: cache, env: production }
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate # avoids two Pods ever fighting over the same RWO PVC mid-rollout
+  selector:
+    matchLabels: { app: redis-cache, tier: cache }
+  template:
+    metadata:
+      labels: { app: redis-cache, tier: cache, env: production }
+    spec:
+      serviceAccountName: redis-sa
+      automountServiceAccountToken: false
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: storage
+                    operator: In
+                    values: ["fast"]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999 # redis-alpine's built-in `redis` user
+        fsGroup: 999
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: redis
+          image: redis:7.2-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: redis
+              containerPort: 6379
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: "100m", memory: "128Mi" }
+            limits: { cpu: "250m", memory: "256Mi" }
+          livenessProbe:
+            tcpSocket: { port: redis }
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            tcpSocket: { port: redis }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: redis-data
+          persistentVolumeClaim:
+            claimName: redis-data
+        - name: tmp
+          emptyDir: {}

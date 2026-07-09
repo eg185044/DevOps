@@ -1,0 +1,106 @@
+# This is the *base* values file - every key here is a default that
+# values-dev.yaml / values-prod.yaml override a subset of. Helm merges them:
+# `helm template ./k8s/helm/cv-platform -f values.yaml -f values-dev.yaml`
+# (later files win on a per-key basis, not a full replace).
+
+# nameOverride / fullnameOverride feed the fullname helper in
+# templates/_helpers.tpl - leave unset to get the default
+# "<release-name>-<resource>" naming (e.g. "cv-platform-dev-backend").
+nameOverride: ""
+fullnameOverride: ""
+
+namespace: devops-app
+
+image:
+  registry: REPLACE_ME_REGISTRY
+  pullPolicy: IfNotPresent
+
+frontend:
+  image: erez-cv-devops-frontend
+  tag: "1.0.0"
+  replicas: 3
+  service:
+    # ClusterIP (default) is only reachable from inside the cluster - the
+    # Ingress is what actually exposes it. NodePort additionally opens this
+    # Service on every node's own IP at a random-ish high port (see
+    # `kubectl get svc` NODE-PORT column) - mainly useful for the "change
+    # Service type via Git" ArgoCD demo (k8s/argocd/README.md) or for a
+    # kind/minikube cluster with no LoadBalancer/Ingress controller at all.
+    type: ClusterIP
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: 250m, memory: 256Mi }
+  tolerations:
+    - key: "dedicated"
+      operator: "Equal"
+      value: "frontend-pool"
+      effect: "NoSchedule"
+
+backend:
+  image: erez-cv-devops-backend
+  tag: "1.0.0"
+  replicas: 2
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: 250m, memory: 256Mi }
+
+worker:
+  image: erez-cv-devops-worker
+  tag: "1.0.0"
+  replicas: 2
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: 250m, memory: 256Mi }
+
+redis:
+  enabled: true
+  image: redis
+  tag: "7.2-alpine"
+  storageClassName: gp3
+  storageSize: 1Gi
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: 250m, memory: 256Mi }
+  preferredNodeLabel:
+    key: storage
+    value: fast
+
+ingress:
+  enabled: true
+  className: nginx
+  host: cv.example.com
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+
+config:
+  awsRegion: eu-west-1
+  dbName: erezcv
+  cvFileName: Erez_Glick_Cv.pdf
+  environment: production
+  maxConnections: "100"
+  cacheTtl: "300"
+  s3BucketName: erez-cv-devops-cv-REPLACE_ME
+  snsTopicArn: "arn:aws:sns:eu-west-1:REPLACE_ME:erez-cv-devops-events"
+
+# Never commit real values here. Pass at install time instead, e.g.:
+#   helm upgrade --install cv-platform ./k8s/helm/cv-platform \
+#     --set secrets.dbHost=xxx.rds.amazonaws.com \
+#     --set secrets.dbUsername=erezadmin \
+#     --set secrets.dbPassword=$DB_PASSWORD
+# or better: pre-create the `db-credentials` Secret with kubectl (see
+# k8s/README.md) and set secrets.create=false so this chart leaves it alone.
+secrets:
+  create: true
+  dbHost: ""
+  dbUsername: erezadmin
+  dbPassword: ""
+
+serviceAccounts:
+  backendIrsaRoleArn: "arn:aws:iam::REPLACE_ME_ACCOUNT_ID:role/erez-cv-devops-backend-irsa"
+  workerIrsaRoleArn: "arn:aws:iam::REPLACE_ME_ACCOUNT_ID:role/erez-cv-devops-worker-irsa"
+
+rbac:
+  enabled: true
+
+networkPolicies:
+  enabled: true

@@ -1,0 +1,45 @@
+# Prod overlay - only the keys that differ from values.yaml go here.
+# Usage:
+#   helm upgrade --install cv-platform-prod ./k8s/helm/cv-platform \
+#     -f ./k8s/helm/cv-platform/values.yaml \
+#     -f ./k8s/helm/cv-platform/values-prod.yaml \
+#     --set image.registry=$ECR_REGISTRY
+# (ArgoCD does the equivalent `-f` layering itself - see argocd/cv-platform-prod-application.yaml)
+#
+# In practice most of this file just makes explicit, in Git, values that
+# values.yaml already defaults to - the point isn't that prod differs
+# wildly from the base, it's that "what prod actually runs" is one
+# named, reviewable file instead of implied by "whatever the defaults happen
+# to be today".
+
+namespace: devops-app
+
+frontend:
+  replicas: 3
+backend:
+  replicas: 2
+worker:
+  replicas: 2
+
+redis:
+  enabled: true
+
+ingress:
+  host: cv.example.com
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+
+config:
+  environment: production
+
+# Real production credentials are never passed through Helm values/`--set`
+# (they'd land in `helm get values` release history, readable by anyone with
+# release-read access). secrets.create=false means this chart leaves
+# db-credentials alone entirely - pre-create it once with
+# `kubectl create secret generic db-credentials ...` (k8s/README.md
+# "Creating Secrets") and Helm/ArgoCD will never touch it.
+secrets:
+  create: false
+
+networkPolicies:
+  enabled: true

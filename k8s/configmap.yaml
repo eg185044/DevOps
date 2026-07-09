@@ -1,0 +1,71 @@
+# Non-sensitive configuration only. Anything secret (DB password, credentials)
+# lives in secret.example.yaml / the real Secret instead — never here.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: devops-app
+  labels:
+    app.kubernetes.io/part-of: erez-cv-platform
+data:
+  AWS_REGION: "eu-west-1"
+  DB_NAME: "erezcv"
+  CV_FILE_NAME: "Erez_Glick_Cv.pdf"
+  ENVIRONMENT: "production"
+  MAX_CONNECTIONS: "100"
+  CACHE_TTL: "300"
+  # Fill in with the real values from `terraform output s3_bucket_name` / `sns_topic_arn`.
+  # Non-secret (an ARN/bucket name is an identifier, not a credential) so ConfigMap is correct here.
+  S3_BUCKET_NAME: "erez-cv-devops-cv-REPLACE_ME"
+  SNS_TOPIC_ARN: "arn:aws:sns:eu-west-1:REPLACE_ME:erez-cv-devops-events"
+---
+# Reverse-proxy config for the frontend container. Mirrors the previous
+# ansible/roles/nginx/templates/cv-platform.conf.j2 used on EC2, with the
+# backend/worker private IPs swapped for stable in-cluster Service DNS names.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: frontend-nginx-conf
+  namespace: devops-app
+  labels:
+    app.kubernetes.io/part-of: erez-cv-platform
+data:
+  default.conf: |
+    server {
+        listen 8080 default_server;
+        server_name _;
+
+        root /usr/share/nginx/html;
+        index index.html;
+
+        access_log /var/log/nginx/cv-platform-access.log;
+        error_log  /var/log/nginx/cv-platform-error.log;
+
+        location / {
+            try_files $uri $uri/ /index.html;
+        }
+
+        location = /health {
+            add_header Content-Type text/plain;
+            return 200 "frontend nginx ok\n";
+        }
+
+        # backend-svc / worker-svc resolve via cluster DNS: <svc>.<namespace>.svc.cluster.local
+        location /api/ {
+            proxy_pass http://backend-svc.devops-app.svc.cluster.local:5000/;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        location /worker/ {
+            proxy_pass http://worker-svc.devops-app.svc.cluster.local:5002/;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+    }

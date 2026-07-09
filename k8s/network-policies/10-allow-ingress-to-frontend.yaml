@@ -1,0 +1,22 @@
+# Only the ingress controller (and other Pods in-namespace, for probes/curl
+# smoke tests) may reach frontend Pods. Adjust the ingress-nginx namespace
+# label selector if your controller lives elsewhere / is named differently.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-to-frontend
+  namespace: devops-app
+spec:
+  podSelector:
+    matchLabels: { app: frontend, tier: frontend }
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+        - podSelector: {} # same-namespace traffic (health checks, curl from a debug pod)
+      ports:
+        - protocol: TCP
+          port: 8080

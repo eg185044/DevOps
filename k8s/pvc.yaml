@@ -1,0 +1,17 @@
+# Backs deployment-redis.yaml's /data mount. On EKS this is provisioned by
+# the EBS CSI driver via the storageClassName below (gp3); swap it for
+# whatever default StorageClass your cluster provides (e.g. "standard" on
+# kind/k3d, which uses local-path and has no real durability guarantees).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-data
+  namespace: devops-app
+  labels: { app: redis-cache, tier: cache }
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: gp3
+  resources:
+    requests:
+      storage: 1Gi

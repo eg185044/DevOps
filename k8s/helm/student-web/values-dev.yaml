@@ -1,0 +1,4 @@
+# Dev overlay - only what differs from values.yaml.
+replicaCount: 1
+image:
+  tag: "1.27-alpine"

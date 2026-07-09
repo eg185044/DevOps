@@ -1,0 +1,21 @@
+cv-platform deployed into namespace "{{ .Values.namespace }}" as Helm release "{{ .Release.Name }}" (revision {{ .Release.Revision }}).
+
+Every resource this release owns is prefixed "{{ include "cv-platform.fullname" . }}-" so it
+never collides with a different release (e.g. cv-platform-dev vs cv-platform-prod).
+
+Check status:
+  kubectl get all -n {{ .Values.namespace }} -l app.kubernetes.io/instance={{ .Release.Name }}
+  kubectl get ingress -n {{ .Values.namespace }}
+
+{{- if .Values.secrets.create }}
+
+WARNING: secrets.create=true means db-credentials was rendered from Helm
+values/`--set` flags, which are stored in `helm get values` release history.
+For anything beyond local testing, set secrets.create=false and pre-create
+the Secret with `kubectl create secret generic db-credentials ...` instead
+(see k8s/README.md "Secrets").
+{{- end }}
+
+Ingress host is set to "{{ .Values.ingress.host }}" - point DNS at your
+Ingress controller's LoadBalancer address:
+  kubectl get svc -n ingress-nginx ingress-nginx-controller

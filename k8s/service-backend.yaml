@@ -1,0 +1,16 @@
+# Internal-only. Never referenced by ingress.yaml - reachable only from
+# other Pods in the namespace (and, once network-policies/ is applied, only
+# from Pods labeled tier=frontend).
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-svc
+  namespace: devops-app
+  labels: { app: backend, tier: backend }
+spec:
+  type: ClusterIP
+  selector: { app: backend, tier: backend }
+  ports:
+    - name: http
+      port: 5000
+      targetPort: http

@@ -1,0 +1,19 @@
+# Same rationale as backend: only frontend's /worker/ proxy location may
+# reach the worker Pods.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-worker-from-frontend
+  namespace: devops-app
+spec:
+  podSelector:
+    matchLabels: { app: worker, tier: worker }
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: { app: frontend, tier: frontend }
+      ports:
+        - protocol: TCP
+          port: 5002

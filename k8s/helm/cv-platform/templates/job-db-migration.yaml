@@ -1,0 +1,62 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "cv-platform.fullname" . }}-db-migration
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "cv-platform.componentLabels" (dict "context" . "component" "db-migration") | nindent 4 }}
+  annotations:
+    # Jobs are immutable once created; on `helm upgrade` re-run it fresh.
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        {{- include "cv-platform.componentLabels" (dict "context" . "component" "db-migration") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "cv-platform.fullname" . }}-backend-sa
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: db-migration
+          image: "{{ .Values.image.registry }}/{{ .Values.backend.image }}:{{ .Values.backend.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          envFrom:
+            - configMapRef: { name: {{ include "cv-platform.fullname" . }}-app-config }
+            - secretRef: { name: {{ include "cv-platform.fullname" . }}-db-credentials }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: "100m", memory: "128Mi" }
+            limits: { cpu: "250m", memory: "256Mi" }
+          command: ["python", "-c"]
+          args:
+            - |
+              import os, psycopg2
+              print("Running DB migration...")
+              conn = psycopg2.connect(
+                  host=os.environ["DB_HOST"],
+                  dbname=os.environ["DB_NAME"],
+                  user=os.environ["DB_USERNAME"],
+                  password=os.environ["DB_PASSWORD"],
+                  port=5432,
+              )
+              cur = conn.cursor()
+              cur.execute("""
+                  CREATE TABLE IF NOT EXISTS cv_events (
+                      id SERIAL PRIMARY KEY,
+                      event_type TEXT NOT NULL,
+                      created_at TIMESTAMP DEFAULT NOW()
+                  );
+              """)
+              conn.commit()
+              cur.close()
+              conn.close()
+              print("Migration complete.")

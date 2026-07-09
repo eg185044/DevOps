@@ -1,0 +1,30 @@
+# Single external entry point, routed to frontend-svc only. This is what
+# replaces the old NLB -> EC2 frontend path from terraform/main.tf.
+#
+# Written for the ingress-nginx controller (portable across EKS/kind/k3d).
+# To use the AWS Load Balancer Controller instead, swap ingressClassName to
+# "alb" and add:
+#   alb.ingress.kubernetes.io/scheme: internet-facing
+#   alb.ingress.kubernetes.io/target-type: ip
+# See k8s/README.md "Ingress" section for the full comparison.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: cv-platform-ingress
+  namespace: devops-app
+  labels: { app: frontend, tier: frontend }
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false" # flip to "true" once cert-manager/ACM issues a cert
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: cv.example.com # REPLACE_ME with the real DNS name (Route53 record)
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend-svc
+                port:
+                  number: 80

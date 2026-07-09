@@ -1,0 +1,17 @@
+# Every value the templates/ use, in one place - see README.md "values.yaml"
+# for why this file exists at all instead of hardcoding these into the
+# templates.
+
+nameOverride: ""
+fullnameOverride: ""
+
+replicaCount: 2
+
+image:
+  repository: nginx
+  tag: "1.27-alpine"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 80

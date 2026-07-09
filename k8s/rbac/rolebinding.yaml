@@ -1,0 +1,18 @@
+# Binds namespace-viewer to diagnostics-sa only. frontend/backend/worker/redis
+# ServiceAccounts get NO RoleBinding at all: none of that application code calls
+# the Kubernetes API, so granting them API read access would violate least
+# privilege for no benefit. This is the "why don't all services share one wide
+# permission set" answer the security README section refers to.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: diagnostics-view-binding
+  namespace: devops-app
+subjects:
+  - kind: ServiceAccount
+    name: diagnostics-sa
+    namespace: devops-app
+roleRef:
+  kind: Role
+  name: namespace-viewer
+  apiGroup: rbac.authorization.k8s.io

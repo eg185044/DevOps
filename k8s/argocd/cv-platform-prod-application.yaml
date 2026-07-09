@@ -1,0 +1,38 @@
+# Same pattern as cv-platform-dev-application.yaml, pointed at
+# values-prod.yaml and the devops-app namespace instead. Two separate
+# Application objects (not one Application with two destinations) is the
+# standard ArgoCD way to model "same chart, two independently-syncable
+# environments" - dev can autosync aggressively while prod could, in a real
+# rollout, use a stricter syncPolicy (e.g. manual sync only) if desired.
+#
+#   kubectl apply -n argocd -f k8s/argocd/cv-platform-prod-application.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cv-platform-prod
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/eg185044/DevOps.git
+    targetRevision: main
+    path: k8s/helm/cv-platform
+    helm:
+      releaseName: cv-platform-prod
+      valueFiles:
+        - values.yaml
+        - values-prod.yaml
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: devops-app
+
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true
+    syncOptions:
+      - RespectIgnoreDifferences=true

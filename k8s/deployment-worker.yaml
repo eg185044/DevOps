@@ -1,0 +1,69 @@
+# Background worker (app/worker/worker.py). Reports S3_BUCKET_NAME on /health
+# purely for diagnostics; never receives traffic from a Service other than
+# in-cluster health/probe traffic and, if ever needed, from backend.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+  namespace: devops-app
+  labels: { app: worker, tier: worker, env: production }
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels: { app: worker, tier: worker }
+  template:
+    metadata:
+      labels: { app: worker, tier: worker, env: production }
+    spec:
+      serviceAccountName: worker-sa
+      automountServiceAccountToken: true # needed for the IRSA token projection
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels: { app: worker, tier: worker }
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: worker
+          image: REPLACE_ME_REGISTRY/erez-cv-devops-worker:1.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 5002
+          env:
+            - name: WORKER_PORT
+              value: "5002"
+          envFrom:
+            - configMapRef: { name: app-config }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: "100m", memory: "128Mi" }
+            limits: { cpu: "250m", memory: "256Mi" }
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

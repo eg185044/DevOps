@@ -1,0 +1,52 @@
+# FOR LOCAL TESTING ONLY (kind/k3d) - never applied against the real EKS
+# deployment, and never referenced by anything under k8s/*.yaml.
+#
+# This exists purely so someone testing on a laptop has *something* for
+# backend's /db/init route to talk to, without needing real AWS access.
+# It is intentionally simpler/less hardened than every other manifest in
+# this project (no PVC - data is lost if the Pod restarts, no
+# resource limits, runs as the image's default user) because it is not a
+# stand-in for production Postgres - real Postgres is RDS (see
+# k8s/README.md "What runs where"). This is the assignment's explicitly
+# allowed 3rd option: "PostgreSQL inside Kubernetes for practice purposes
+# only" - and precisely why it's not suited for production is the list
+# above: no backups, no HA, no automated failover, no patching strategy,
+# and its data disappears the moment the Pod is rescheduled.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-local
+  namespace: devops-app
+  labels: { app: postgres-local, tier: local-dev }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: postgres-local }
+  template:
+    metadata:
+      labels: { app: postgres-local, tier: local-dev }
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: erezcv
+            - name: POSTGRES_USER
+              value: erezadmin
+            - name: POSTGRES_PASSWORD
+              value: localtest123
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-local
+  namespace: devops-app
+  labels: { app: postgres-local, tier: local-dev }
+spec:
+  selector: { app: postgres-local }
+  ports:
+    - port: 5432
+      targetPort: 5432

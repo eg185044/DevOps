@@ -21,6 +21,9 @@ group_vars/secrets-vault.yml
 # Generated Ansible inventory (may contain real IPs)
 ansible/inventory.ini
 
+# Real Kubernetes secrets (k8s/secret.example.yaml is the committed template)
+k8s/secret.yaml
+
 # Python
 __pycache__/
 *.pyc
@@ -29,3 +32,7 @@ __pycache__/
 # OS/IDE
 .DS_Store
 .vscode/settings.json
+
+# Claude Code
+.claude/
+CLAUDE.md

@@ -1,0 +1,7 @@
+student-web release "{{ .Release.Name }}" deployed (revision {{ .Release.Revision }}).
+
+  kubectl get deployment,svc,pods -l app.kubernetes.io/instance={{ .Release.Name }}
+
+Port-forward to try it locally:
+  kubectl port-forward svc/{{ include "student-web.fullname" . }} 8080:{{ .Values.service.port }}
+  curl http://localhost:8080/

@@ -1,0 +1,61 @@
+# Runs once at deploy time to make sure the cv_events table exists before
+# backend Pods start taking traffic. Reuses the backend image (it already has
+# psycopg2-binary from requirements.txt) instead of shipping a separate
+# migration image - the schema below matches app/backend/app.py's /db/init
+# route exactly, so there is exactly one place that owns the schema.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: db-migration
+  namespace: devops-app
+  labels: { app: db-migration, tier: backend }
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels: { app: db-migration, tier: backend }
+    spec:
+      serviceAccountName: backend-sa
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: db-migration
+          image: REPLACE_ME_REGISTRY/erez-cv-devops-backend:1.0.0
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef: { name: app-config }
+            - secretRef: { name: db-credentials }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: "100m", memory: "128Mi" }
+            limits: { cpu: "250m", memory: "256Mi" }
+          command: ["python", "-c"]
+          args:
+            - |
+              import os, sys, psycopg2
+              print("Running DB migration...")
+              conn = psycopg2.connect(
+                  host=os.environ["DB_HOST"],
+                  dbname=os.environ["DB_NAME"],
+                  user=os.environ["DB_USERNAME"],
+                  password=os.environ["DB_PASSWORD"],
+                  port=5432,
+              )
+              cur = conn.cursor()
+              cur.execute("""
+                  CREATE TABLE IF NOT EXISTS cv_events (
+                      id SERIAL PRIMARY KEY,
+                      event_type TEXT NOT NULL,
+                      created_at TIMESTAMP DEFAULT NOW()
+                  );
+              """)
+              conn.commit()
+              cur.close()
+              conn.close()
+              print("Migration complete.")

@@ -1,0 +1,16 @@
+# ClusterIP only. The Ingress (ingress.yaml) is what actually faces the
+# internet; this Service is just how the Ingress controller / other Pods
+# reach the frontend Pods inside the cluster.
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-svc
+  namespace: devops-app
+  labels: { app: frontend, tier: frontend }
+spec:
+  type: ClusterIP
+  selector: { app: frontend, tier: frontend }
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

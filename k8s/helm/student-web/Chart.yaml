@@ -1,0 +1,10 @@
+apiVersion: v2
+name: student-web
+description: >-
+  Minimal teaching chart for the "Kubernetes Home Assignment - Helm & ArgoCD"
+  Part 1 practical: a single NGINX Deployment + Service, built from scratch
+  to learn what Helm actually generates (as opposed to k8s/helm/cv-platform,
+  which is the real multi-service app - see its README for that one).
+type: application
+version: 0.1.0
+appVersion: "1.27"
