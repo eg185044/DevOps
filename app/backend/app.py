@@ -22,11 +22,14 @@ def cv():
         "s3_bucket": env("S3_BUCKET_NAME"),
     })
 
-@app.route("/db/init")
-def db_init():
-    conn = psycopg2.connect(
+def db_connect():
+    return psycopg2.connect(
         host=env("DB_HOST"), dbname=env("DB_NAME"), user=env("DB_USERNAME"), password=env("DB_PASSWORD"), port=5432
     )
+
+@app.route("/db/init")
+def db_init():
+    conn = db_connect()
     cur = conn.cursor()
     cur.execute("""
         CREATE TABLE IF NOT EXISTS cv_events (
@@ -41,8 +44,30 @@ def db_init():
     conn.close()
     return jsonify({"status": "database initialized and write completed"})
 
-@app.route("/notify")
-def notify():
+@app.route("/db/events")
+def db_events():
+    conn = db_connect()
+    cur = conn.cursor()
+    cur.execute("SELECT id, event_type, created_at FROM cv_events ORDER BY id DESC LIMIT 20;")
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    events = [{"id": r[0], "event_type": r[1], "created_at": r[2].isoformat()} for r in rows]
+    return jsonify({"count": len(events), "events": events})
+
+@app.route("/s3/upload")
+def s3_upload():
+    bucket = env("S3_BUCKET_NAME")
+    if not bucket:
+        return jsonify({"status": "skipped", "reason": "S3_BUCKET_NAME missing"}), 400
+    key = f"cv-events/{datetime.datetime.utcnow().strftime('%Y%m%dT%H%M%S')}.txt"
+    body = f"Erez CV Platform test upload at {datetime.datetime.utcnow().isoformat()}Z"
+    client = boto3.client("s3", region_name=env("AWS_REGION", "eu-west-1"))
+    client.put_object(Bucket=bucket, Key=key, Body=body.encode("utf-8"), ContentType="text/plain")
+    return jsonify({"status": "uploaded", "bucket": bucket, "key": key})
+
+@app.route("/sns/publish")
+def sns_publish():
     topic = env("SNS_TOPIC_ARN")
     if not topic:
         return jsonify({"status": "skipped", "reason": "SNS_TOPIC_ARN missing"}), 400

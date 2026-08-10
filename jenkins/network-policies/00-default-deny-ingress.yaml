@@ -1,0 +1,13 @@
+# Baseline: nothing in the `jenkins` namespace accepts inbound traffic
+# unless a later, more specific policy explicitly allows it. Mirrors the
+# same default-deny-then-allow pattern used in k8s/network-policies/ for
+# the application namespace.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: jenkins
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress

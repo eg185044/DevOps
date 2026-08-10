@@ -1,0 +1,38 @@
+# Dynamic agent Pods (label jenkins/label=ci-agent|cd-agent, auto-applied
+# by the Kubernetes plugin to every Pod it launches from
+# jenkins/jcasc/jenkins.yaml's templates) connect OUTBOUND to the
+# controller's JNLP port 50000 to register themselves - so the controller
+# needs an explicit INGRESS allow rule for that port from those pods.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-agents-to-controller-jnlp
+  namespace: jenkins
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: "jenkins-controller"
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              jenkins/label: ci-agent
+        - podSelector:
+            matchLabels:
+              jenkins/label: cd-agent
+      ports:
+        - protocol: TCP
+          port: 50000
+# Egress is intentionally left unrestricted for this namespace (no
+# NetworkPolicy of type Egress is defined here), for the same reason
+# documented in k8s/network-policies/00-default-deny-ingress.yaml: agent
+# Pods need outbound HTTPS to a set of external, non-enumerable-by-CIDR
+# endpoints - the Git remote, ECR, AWS STS (for IRSA), and the Trivy
+# vulnerability database mirror - and standard NetworkPolicy can only
+# filter by CIDR/namespace/pod selector, not by DNS name. Restricting
+# egress correctly would require an egress-aware CNI feature (e.g. Cilium
+# FQDN policies) or a forward proxy, which is out of scope for this
+# project; AWS Security Groups at the node/ENI level remain the actual
+# egress boundary, same as for the application namespace.

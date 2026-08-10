@@ -1,0 +1,233 @@
+// CI Pipeline - builds and validates the application. NEVER deploys
+// anything to Kubernetes (see jenkins/README.md - "Separation of CI/CD").
+//
+// Runs on the "ci-agent" Kubernetes Pod template defined in
+// jenkins/jcasc/jenkins.yaml (containers: jnlp, tools, kaniko, trivy).
+// The controller itself never executes a build step (numExecutors: 0).
+//
+// No secrets, tokens, passwords, or kubeconfig values appear anywhere in
+// this file. Registry/repo names come from non-secret environment
+// variables injected by JCasC's globalNodeProperties (see
+// jenkins/jcasc/jenkins.yaml). Registry authentication is IRSA
+// (jenkins-ci-agent ServiceAccount, see jenkins/rbac/ci-agent-
+// serviceaccount.yaml) - no static AWS credential exists anywhere.
+
+pipeline {
+    agent { label 'ci-agent' }
+
+    options {
+        timestamps()
+        ansiColor('xterm')
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeep: 30))
+        timeout(time: 30, unit: 'MINUTES')
+    }
+
+    environment {
+        SERVICES = "backend frontend worker"
+    }
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                container('tools') {
+                    checkout scm
+                    script {
+                        env.SHORT_SHA  = sh(script: 'git rev-parse --short=12 HEAD', returnStdout: true).trim()
+                        env.GIT_BRANCH_NAME = sh(script: 'git rev-parse --abbrev-ref HEAD', returnStdout: true).trim()
+                        // Immutable tag: short commit SHA + Jenkins build number.
+                        // Never "latest" - see IMAGE_TAG usage in every later stage.
+                        env.IMAGE_TAG = "${env.SHORT_SHA}-b${env.BUILD_NUMBER}"
+                    }
+                    echo "Commit ${env.SHORT_SHA} on '${env.GIT_BRANCH_NAME}', build #${env.BUILD_NUMBER} -> IMAGE_TAG=${env.IMAGE_TAG}"
+                }
+            }
+        }
+
+        stage('Validate') {
+            steps {
+                container('tools') {
+                    sh '''
+                        set -euo pipefail
+                        test -f app/backend/Dockerfile
+                        test -f app/frontend/Dockerfile
+                        test -f app/worker/Dockerfile
+                        test -f app/backend/requirements.txt
+                        test -f app/worker/requirements.txt
+                        test -f k8s/helm/cv-platform/Chart.yaml
+                        echo "Project structure OK: Dockerfiles, requirements, and Helm chart present."
+                    '''
+                }
+            }
+        }
+
+        stage('Lint / Static Analysis') {
+            steps {
+                container('tools') {
+                    sh '''
+                        set -euo pipefail
+                        export HOME=/tmp
+                        pip install --quiet --user flake8==7.1.1
+                        export PATH="$HOME/.local/bin:$PATH"
+                        flake8 --max-line-length=120 app/backend/app.py app/worker/worker.py
+                    '''
+                }
+            }
+        }
+
+        stage('Unit Tests') {
+            steps {
+                container('tools') {
+                    sh '''
+                        set -euo pipefail
+                        export HOME=/tmp
+                        pip install --quiet --user \
+                            -r app/backend/requirements.txt -r app/backend/requirements-dev.txt \
+                            -r app/worker/requirements-dev.txt
+                        export PATH="$HOME/.local/bin:$PATH"
+                        mkdir -p test-results
+                        python -m pytest app/backend/tests app/worker/tests \
+                            --junitxml=test-results/junit.xml -v
+                    '''
+                }
+            }
+            post {
+                always {
+                    container('tools') {
+                        junit testResults: 'test-results/junit.xml', allowEmptyResults: false
+                    }
+                }
+            }
+        }
+
+        stage('Build, Tag & Push (kaniko)') {
+            steps {
+                container('kaniko') {
+                    // kaniko fuses build+tag+push into one operation (it streams
+                    // layers straight to the registry - there is no local Docker
+                    // daemon on this agent and no /var/run/docker.sock mount, by
+                    // design). Every service gets the SAME immutable IMAGE_TAG.
+                    sh '''
+                        set -euo pipefail
+                        mkdir -p /tmp/digests
+                        for svc in $SERVICES; do
+                          echo "== Building and pushing ${svc}:${IMAGE_TAG} =="
+                          /kaniko/executor \
+                            --context "dir://$(pwd)/app/${svc}" \
+                            --dockerfile "$(pwd)/app/${svc}/Dockerfile" \
+                            --destination "${ECR_REGISTRY}/${ECR_REPO_PREFIX}-${svc}:${IMAGE_TAG}" \
+                            --digest-file "/tmp/digests/${svc}.digest" \
+                            --cache=true \
+                            --cache-repo "${ECR_REGISTRY}/${ECR_REPO_PREFIX}-${svc}-cache"
+                        done
+                    '''
+                }
+            }
+        }
+
+        stage('Image Scan (Trivy)') {
+            steps {
+                container('trivy') {
+                    sh '''
+                        set -euo pipefail
+                        mkdir -p /tmp/trivy-cache trivy-reports
+                        FAIL=0
+                        for svc in $SERVICES; do
+                          REF="${ECR_REGISTRY}/${ECR_REPO_PREFIX}-${svc}:${IMAGE_TAG}"
+                          echo "== Scanning ${REF} =="
+                          # Full report (all severities) - archived as evidence, never fails the build on its own.
+                          trivy image --cache-dir /tmp/trivy-cache --format table \
+                            --output "trivy-reports/${svc}.txt" "${REF}" || true
+                          # Gate: CRITICAL vulnerabilities with a known fix fail the build.
+                          if ! trivy image --cache-dir /tmp/trivy-cache --severity CRITICAL \
+                                --ignore-unfixed --exit-code 1 "${REF}"; then
+                            echo "CRITICAL vulnerabilities with a fix available found in ${svc} - failing build."
+                            FAIL=1
+                          fi
+                        done
+                        exit $FAIL
+                    '''
+                }
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'trivy-reports/*.txt', allowEmptyArchive: true
+                }
+            }
+        }
+
+        stage('Publish Metadata') {
+            steps {
+                container('tools') {
+                    sh '''
+                        set -euo pipefail
+                        {
+                          echo "{"
+                          echo "  \\"git_commit\\": \\"${SHORT_SHA}\\","
+                          echo "  \\"git_branch\\": \\"${GIT_BRANCH_NAME}\\","
+                          echo "  \\"build_number\\": \\"${BUILD_NUMBER}\\","
+                          echo "  \\"build_url\\": \\"${BUILD_URL}\\","
+                          echo "  \\"image_tag\\": \\"${IMAGE_TAG}\\","
+                          echo "  \\"images\\": {"
+                          first=1
+                          for svc in $SERVICES; do
+                            [ "$first" -eq 1 ] || echo ","
+                            first=0
+                            digest=$(cat "/tmp/digests/${svc}.digest")
+                            printf '    "%s": {"ref": "%s/%s-%s:%s", "digest": "%s"}' \
+                              "$svc" "$ECR_REGISTRY" "$ECR_REPO_PREFIX" "$svc" "$IMAGE_TAG" "$digest"
+                          done
+                          echo ""
+                          echo "  }"
+                          echo "}"
+                        } > image-metadata.json
+                        echo "---- image-metadata.json ----"
+                        cat image-metadata.json
+                        echo "------------------------------"
+                    '''
+                    archiveArtifacts artifacts: 'image-metadata.json', fingerprint: true
+                }
+            }
+        }
+
+        stage('Trigger CD (dev)') {
+            // Auto-promotion target is `dev` only. Promoting the exact same
+            // IMAGE_TAG to `prod` is always a deliberate, manual
+            // cd-application run (params.ENVIRONMENT=prod) - see
+            // jenkins/README.md "Connecting CI to CD".
+            when {
+                expression { env.GIT_BRANCH_NAME == 'main' }
+            }
+            steps {
+                build job: 'cd-application',
+                      wait: false,
+                      parameters: [
+                          string(name: 'IMAGE_TAG', value: env.IMAGE_TAG),
+                          string(name: 'ENVIRONMENT', value: 'dev'),
+                          string(name: 'RELEASE_DESCRIPTION', value: "auto-deploy from ci-application #${env.BUILD_NUMBER}"),
+                          string(name: 'CI_BUILD_URL', value: env.BUILD_URL)
+                      ]
+            }
+        }
+    }
+
+    post {
+        always {
+            container('tools') {
+                // Ephemeral workspace + Pod are both discarded after this -
+                // nothing here needs a manual cleanup step beyond cleanWs(),
+                // and no credential files were ever written to disk (IRSA
+                // issues short-lived tokens directly into the container's
+                // filesystem/environment, never handled by this Jenkinsfile).
+                cleanWs(deleteDirs: true, notFailBuild: true)
+            }
+        }
+        success {
+            echo "CI build #${env.BUILD_NUMBER} succeeded - ${env.IMAGE_TAG} pushed for: ${env.SERVICES}"
+        }
+        failure {
+            echo "CI build #${env.BUILD_NUMBER} FAILED - no image was promoted, cd-application was NOT triggered."
+        }
+    }
+}

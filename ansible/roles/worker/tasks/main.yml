@@ -9,7 +9,7 @@
 
 - name: Copy worker application
   ansible.builtin.copy:
-    src: "../../../../app/worker/"
+    src: "{{ playbook_dir }}/../app/worker/"
     dest: "{{ app_root }}/worker/"
     owner: ubuntu
     group: ubuntu

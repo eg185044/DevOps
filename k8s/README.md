@@ -486,3 +486,6 @@ finalizer means that one delete cascades to every resource ArgoCD created.
    assignment's practical scenario and `frontend` / `nginx` everywhere else
    (including the actual application code) - this project uses `frontend`
    throughout, since that's what the real service is.
+
+   Thanks.
+   

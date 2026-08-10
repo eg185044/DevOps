@@ -1,0 +1,21 @@
+# Cross-namespace binding: the Role lives in devops-app (previous file),
+# the ServiceAccount subject lives in jenkins (jenkins/rbac/cd-agent-
+# serviceaccount.yaml). This is the mechanism that lets a Pod running in
+# the `jenkins` namespace deploy into `devops-app` without ever holding a
+# cluster-scoped credential.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: jenkins-cd-deploy
+  namespace: devops-app
+  labels:
+    app.kubernetes.io/name: jenkins
+    app.kubernetes.io/component: cd-agent
+subjects:
+  - kind: ServiceAccount
+    name: jenkins-cd-deploy
+    namespace: jenkins
+roleRef:
+  kind: Role
+  name: cd-deployer
+  apiGroup: rbac.authorization.k8s.io

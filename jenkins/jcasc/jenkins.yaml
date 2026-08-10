@@ -1,0 +1,265 @@
+# Jenkins Configuration as Code (JCasC).
+#
+# This file is the single source of truth for controller configuration:
+# security realm, authorization, the Kubernetes cloud, both agent Pod
+# templates, and the seed job that creates ci-application / cd-application.
+# It is mounted into the controller Pod by jenkins/helm/values.yaml
+# (controller.JCasC.configScripts) and reloaded on every controller
+# restart - any change made by hand through the UI does NOT survive a
+# restart, by design (see jenkins/README.md - "Reproducibility").
+#
+# ${VAR:-default} placeholders are resolved from the controller container's
+# own environment (see jenkins/helm/values.yaml - controller.containerEnv),
+# which is how registry/repo/namespace/git-url values flow in from one
+# place without editing this file per environment.
+
+jenkins:
+  systemMessage: >
+    Managed entirely via JCasC (jenkins/jcasc/jenkins.yaml) and Job DSL
+    (jenkins/jobs/seed.groovy). Do not reconfigure through the UI - changes
+    made there do not survive a controller restart/redeploy.
+  numExecutors: 0
+  mode: EXCLUSIVE
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: "${ADMIN_USER:-admin}"
+          password: "${ADMIN_PASSWORD}"
+  authorizationStrategy:
+    loggedInUsersCanDoAnything:
+      allowAnonymousRead: false
+  remotingSecurity:
+    enabled: true
+  crumbIssuer: "standard"
+  disabledAdministrativeMonitors:
+    - "jenkins.security.UpdateSiteWarningsMonitor"
+  clouds:
+    - kubernetes:
+        name: "kubernetes"
+        serverUrl: "https://kubernetes.default.svc"
+        skipTlsVerify: false
+        namespace: "jenkins"
+        jenkinsUrl: "http://jenkins-controller.jenkins.svc.cluster.local:8080"
+        jenkinsTunnel: "jenkins-controller-agent.jenkins.svc.cluster.local:50000"
+        containerCapStr: "10"
+        connectTimeout: 30
+        readTimeout: 30
+        retentionTimeout: 5
+        templates:
+          # ---------------------------------------------------------------
+          # CI agent: checkout/lint/test (python), build+push (kaniko),
+          # scan (trivy). No Docker socket anywhere - see jenkins/README.md
+          # "Agent isolation".
+          # ---------------------------------------------------------------
+          - name: "ci-agent"
+            label: "ci-agent"
+            namespace: "jenkins"
+            serviceAccount: "jenkins-ci-agent"
+            idleMinutes: 5
+            podRetention: "never"
+            showRawYaml: true
+            yamlMergeStrategy: "merge"
+            yaml: |
+              apiVersion: v1
+              kind: Pod
+              spec:
+                securityContext:
+                  runAsNonRoot: false   # overridden per-container below; kaniko needs root (see comment on that container)
+                  seccompProfile:
+                    type: RuntimeDefault
+                containers:
+                  - name: "jnlp"
+                    image: "jenkins/inbound-agent:3283.v92c105e0f819-1"
+                    resources:
+                      requests: { cpu: "100m", memory: "256Mi" }
+                      limits: { cpu: "500m", memory: "512Mi" }
+                    securityContext:
+                      runAsNonRoot: true
+                      runAsUser: 1000
+                      allowPrivilegeEscalation: false
+                      readOnlyRootFilesystem: true
+                      capabilities: { drop: ["ALL"] }
+                    env:
+                      - { name: "HOME", value: "/tmp" }
+                    volumeMounts:
+                      - { name: "scratch", mountPath: "/tmp" }
+                  - name: "tools"
+                    image: "python:3.12-slim"
+                    command: ["sleep"]
+                    args: ["infinity"]
+                    resources:
+                      requests: { cpu: "250m", memory: "256Mi" }
+                      limits: { cpu: "1", memory: "1Gi" }
+                    securityContext:
+                      runAsNonRoot: true
+                      runAsUser: 1000
+                      allowPrivilegeEscalation: false
+                      readOnlyRootFilesystem: true
+                      capabilities: { drop: ["ALL"] }
+                    env:
+                      - { name: "HOME", value: "/tmp" }
+                      - { name: "PIP_CACHE_DIR", value: "/tmp/pip-cache" }
+                    volumeMounts:
+                      - { name: "scratch", mountPath: "/tmp" }
+                  - name: "kaniko"
+                    # kaniko unpacks and snapshots container filesystem layers, which
+                    # requires root inside its own container - this is the documented,
+                    # accepted trade-off vs. the alternative of mounting the node's
+                    # /var/run/docker.sock (which the task explicitly forbids and which
+                    # would grant far broader host access than kaniko running as root
+                    # inside its own throwaway agent Pod). See jenkins/README.md.
+                    image: "gcr.io/kaniko-project/executor:v1.23.2-debug"
+                    command: ["sleep"]
+                    args: ["infinity"]
+                    resources:
+                      requests: { cpu: "500m", memory: "512Mi" }
+                      limits: { cpu: "2", memory: "2Gi" }
+                    securityContext:
+                      runAsNonRoot: false
+                      allowPrivilegeEscalation: false
+                      capabilities: { drop: ["ALL"] }
+                    volumeMounts:
+                      - { name: "scratch", mountPath: "/tmp" }
+                  - name: "trivy"
+                    image: "aquasec/trivy:0.56.2"
+                    command: ["sleep"]
+                    args: ["infinity"]
+                    resources:
+                      requests: { cpu: "250m", memory: "512Mi" }
+                      limits: { cpu: "1", memory: "1Gi" }
+                    securityContext:
+                      runAsNonRoot: true
+                      runAsUser: 1000
+                      allowPrivilegeEscalation: false
+                      readOnlyRootFilesystem: true
+                      capabilities: { drop: ["ALL"] }
+                    env:
+                      - { name: "HOME", value: "/tmp" }
+                      - { name: "TRIVY_CACHE_DIR", value: "/tmp/trivy-cache" }
+                    volumeMounts:
+                      - { name: "scratch", mountPath: "/tmp" }
+                volumes:
+                  - name: "scratch"
+                    emptyDir: {}
+          # ---------------------------------------------------------------
+          # CD agent: kubectl + helm only, deploys via the ServiceAccount's
+          # own in-cluster credentials (no kubeconfig file, no static
+          # cluster credential). Never builds an image.
+          # ---------------------------------------------------------------
+          - name: "cd-agent"
+            label: "cd-agent"
+            namespace: "jenkins"
+            serviceAccount: "jenkins-cd-deploy"
+            idleMinutes: 5
+            podRetention: "never"
+            showRawYaml: true
+            yamlMergeStrategy: "merge"
+            yaml: |
+              apiVersion: v1
+              kind: Pod
+              spec:
+                securityContext:
+                  seccompProfile:
+                    type: RuntimeDefault
+                containers:
+                  - name: "jnlp"
+                    image: "jenkins/inbound-agent:3283.v92c105e0f819-1"
+                    resources:
+                      requests: { cpu: "100m", memory: "256Mi" }
+                      limits: { cpu: "500m", memory: "512Mi" }
+                    securityContext:
+                      runAsNonRoot: true
+                      runAsUser: 1000
+                      allowPrivilegeEscalation: false
+                      readOnlyRootFilesystem: true
+                      capabilities: { drop: ["ALL"] }
+                    env:
+                      - { name: "HOME", value: "/tmp" }
+                    volumeMounts:
+                      - { name: "scratch", mountPath: "/tmp" }
+                  - name: "deployer"
+                    image: "alpine/k8s:1.29.9"
+                    command: ["sleep"]
+                    args: ["infinity"]
+                    resources:
+                      requests: { cpu: "250m", memory: "256Mi" }
+                      limits: { cpu: "1", memory: "1Gi" }
+                    securityContext:
+                      runAsNonRoot: true
+                      runAsUser: 1000
+                      allowPrivilegeEscalation: false
+                      readOnlyRootFilesystem: true
+                      capabilities: { drop: ["ALL"] }
+                    env:
+                      - { name: "HOME", value: "/tmp" }
+                      - { name: "HELM_CACHE_HOME", value: "/tmp/helm/cache" }
+                      - { name: "HELM_CONFIG_HOME", value: "/tmp/helm/config" }
+                      - { name: "HELM_DATA_HOME", value: "/tmp/helm/data" }
+                    volumeMounts:
+                      - { name: "scratch", mountPath: "/tmp" }
+                volumes:
+                  - name: "scratch"
+                    emptyDir: {}
+  globalNodeProperties:
+    - envVars:
+        env:
+          - key: "GIT_REPO_URL"
+            value: "${GIT_REPO_URL:-https://github.com/REPLACE_ME_ORG/REPLACE_ME_REPO.git}"
+          - key: "GIT_CREDENTIALS_ID"
+            value: "${GIT_CREDENTIALS_ID:-}"
+          - key: "ECR_REGISTRY"
+            value: "${ECR_REGISTRY:-REPLACE_ME_ACCOUNT_ID.dkr.ecr.REPLACE_ME_REGION.amazonaws.com}"
+          - key: "ECR_REPO_PREFIX"
+            value: "${ECR_REPO_PREFIX:-erez-cv-devops}"
+          - key: "AWS_REGION"
+            value: "${AWS_REGION:-eu-west-1}"
+          - key: "CD_TARGET_NAMESPACE"
+            value: "${CD_TARGET_NAMESPACE:-devops-app}"
+          - key: "HELM_CHART_PATH"
+            value: "${HELM_CHART_PATH:-k8s/helm/cv-platform}"
+          - key: "HELM_RELEASE_NAME"
+            value: "${HELM_RELEASE_NAME:-cv-platform}"
+
+# Job creation as code: this is the ONE job JCasC defines directly. It is
+# intentionally tiny - all it does is check out this repository and hand
+# off to the Job DSL plugin against jenkins/jobs/seed.groovy, which is the
+# versioned, reviewable source of truth for ci-application/cd-application.
+# Re-running this "seed-job" build is how ./scripts/create-jobs.sh
+# (re)creates or updates the two real jobs, idempotently.
+jobs:
+  - script: |
+      pipelineJob('seed-job') {
+        description('Bootstraps ci-application and cd-application from jenkins/jobs/seed.groovy. Triggered by scripts/create-jobs.sh; safe to re-run.')
+        definition {
+          cps {
+            script('''
+              node("cd-agent") {
+                // jnlp is the one container guaranteed to ship git (see
+                // jenkinsci/docker-inbound-agent) - pin the checkout and
+                // Job DSL step to it explicitly rather than relying on
+                // whichever container happens to be first in the template.
+                container("jnlp") {
+                  stage("Checkout seed source") {
+                    git(url: env.GIT_REPO_URL, credentialsId: env.GIT_CREDENTIALS_ID)
+                  }
+                  stage("Run Job DSL") {
+                    jobDsl(
+                      targets: "jenkins/jobs/seed.groovy",
+                      removedJobAction: "IGNORE",
+                      removedViewAction: "IGNORE"
+                    )
+                  }
+                }
+              }
+            ''')
+            sandbox(true)
+          }
+        }
+      }
+
+unclassified:
+  location:
+    # Cosmetic only (used in email links/build badges); the real access
+    # path is documented in jenkins/README.md ("Accessing the Jenkins UI").
+    url: "${JENKINS_URL:-http://localhost:8080/}"

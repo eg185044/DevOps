@@ -16,7 +16,7 @@
 
 - name: Copy frontend website files
   ansible.builtin.copy:
-    src: "../../../../app/frontend/public/"
+    src: "{{ playbook_dir }}/../app/frontend/public/"
     dest: "{{ frontend_root }}/"
     owner: www-data
     group: www-data

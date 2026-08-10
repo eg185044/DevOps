@@ -1,0 +1,275 @@
+// CD Pipeline - deploys an image that CI already built, tagged, scanned
+// and pushed. NEVER builds a Docker image and NEVER modifies application
+// source (see jenkins/README.md - "Separation of CI/CD").
+//
+// Runs on the "cd-agent" Kubernetes Pod template defined in
+// jenkins/jcasc/jenkins.yaml (containers: jnlp, deployer with kubectl +
+// helm). Authenticates to the target cluster purely via the
+// jenkins-cd-deploy ServiceAccount's in-cluster token - no kubeconfig
+// file, no static cluster credential, ever (see
+// jenkins/rbac/cd-agent-serviceaccount.yaml + jenkins/rbac/cd-deploy-
+// role*.yaml, which scope it to exactly the resource kinds/verbs this
+// pipeline uses, inside devops-app / devops-app-dev only, plus one
+// narrowly-scoped ClusterRole for the two Namespace objects themselves -
+// see jenkins/rbac/cd-deploy-clusterrole-namespaces.yaml for why).
+//
+// Target namespace is NOT a free-text input: it is derived from
+// ENVIRONMENT by reading the `namespace:` key straight out of
+// k8s/helm/cv-platform/values-<ENVIRONMENT>.yaml, so this pipeline can
+// never drift from what that file - the actual source of truth Mission 3
+// already established - says. See the "Resolve target namespace" stage.
+
+pipeline {
+    agent { label 'cd-agent' }
+
+    options {
+        timestamps()
+        ansiColor('xterm')
+        // One deploy per environment at a time - a second cd-application
+        // run for the same ENVIRONMENT queues behind this one instead of
+        // running concurrently (satisfies "prevent two parallel
+        // deployments to the same environment").
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeep: 30))
+        timeout(time: 20, unit: 'MINUTES')
+    }
+
+    parameters {
+        string(name: 'IMAGE_TAG', defaultValue: '', description: 'REQUIRED. Immutable tag produced by ci-application. "latest" is rejected.')
+        choice(name: 'ENVIRONMENT', choices: ['dev', 'prod'], description: 'Selects k8s/helm/cv-platform/values-<ENVIRONMENT>.yaml - this also determines the target namespace (see that file\'s own "namespace:" key).')
+        string(name: 'RELEASE_DESCRIPTION', defaultValue: '', description: 'Optional free-text note recorded as the Helm release description.')
+        string(name: 'CI_BUILD_URL', defaultValue: '', description: 'Optional: the ci-application build that produced IMAGE_TAG (traceability).')
+    }
+
+    stages {
+
+        stage('Show release intent') {
+            steps {
+                echo """\
+                    Deploy requested by: ${currentBuild.getBuildCauses().collect { it.shortDescription }.join(', ') ?: 'unknown'}
+                    IMAGE_TAG:           ${params.IMAGE_TAG}
+                    ENVIRONMENT:         ${params.ENVIRONMENT}
+                    Triggering CI build: ${params.CI_BUILD_URL ?: 'n/a (manual run)'}
+                    Release description: ${params.RELEASE_DESCRIPTION ?: 'n/a'}
+                """.stripIndent()
+            }
+        }
+
+        stage('Checkout') {
+            steps {
+                // Only pulls the Helm chart / manifests already produced by
+                // Mission 3 (k8s/helm/cv-platform) - no application source is
+                // touched or rebuilt.
+                checkout scm
+            }
+        }
+
+        stage('Resolve target namespace') {
+            steps {
+                container('deployer') {
+                    script {
+                        env.TARGET_NAMESPACE = sh(
+                            script: '''
+                                set -euo pipefail
+                                grep -E '^namespace:' "${HELM_CHART_PATH}/values-${ENVIRONMENT}.yaml" | awk '{print $2}'
+                            ''',
+                            returnStdout: true
+                        ).trim()
+                    }
+                    sh '''
+                        set -euo pipefail
+                        if [ -z "${TARGET_NAMESPACE}" ]; then
+                          echo "Could not resolve a namespace from ${HELM_CHART_PATH}/values-${ENVIRONMENT}.yaml - refusing to guess." >&2
+                          exit 1
+                        fi
+                        echo "ENVIRONMENT=${ENVIRONMENT} -> TARGET_NAMESPACE=${TARGET_NAMESPACE}"
+                    '''
+                }
+            }
+        }
+
+        stage('Input Validation') {
+            steps {
+                container('deployer') {
+                    sh '''
+                        set -euo pipefail
+
+                        if [ -z "${IMAGE_TAG}" ]; then
+                          echo "IMAGE_TAG is required." >&2
+                          exit 1
+                        fi
+                        if [ "${IMAGE_TAG}" = "latest" ]; then
+                          echo "IMAGE_TAG must not be 'latest' - pass the immutable tag ci-application produced." >&2
+                          exit 1
+                        fi
+                        case "${IMAGE_TAG}" in
+                          *[!a-zA-Z0-9._-]*)
+                            echo "IMAGE_TAG contains characters outside [A-Za-z0-9._-] - refusing." >&2
+                            exit 1
+                            ;;
+                        esac
+
+                        case "${TARGET_NAMESPACE}" in
+                          devops-app|devops-app-dev) ;;
+                          *)
+                            echo "Resolved namespace '${TARGET_NAMESPACE}' is not one this pipeline's RBAC is allowed to touch (devops-app, devops-app-dev)." >&2
+                            exit 1
+                            ;;
+                        esac
+
+                        echo "Input validation OK: IMAGE_TAG=${IMAGE_TAG} ENVIRONMENT=${ENVIRONMENT} TARGET_NAMESPACE=${TARGET_NAMESPACE}"
+                    '''
+                }
+            }
+        }
+
+        stage('Manifest Validation') {
+            steps {
+                container('deployer') {
+                    sh '''
+                        set -euo pipefail
+                        # The chart has NO shared .Values.image.tag - each service's tag
+                        # is a separate key (.Values.backend.tag / .frontend.tag / .worker.tag,
+                        # see k8s/helm/cv-platform/templates/deployment-*.yaml) - all three
+                        # must be set explicitly to the same IMAGE_TAG so every service in
+                        # this release runs the one commit CI just tested.
+                        helm lint "${HELM_CHART_PATH}" -f "${HELM_CHART_PATH}/values-${ENVIRONMENT}.yaml" \
+                            --set backend.tag="${IMAGE_TAG}" \
+                            --set frontend.tag="${IMAGE_TAG}" \
+                            --set worker.tag="${IMAGE_TAG}"
+
+                        helm template "${HELM_RELEASE_NAME}" "${HELM_CHART_PATH}" \
+                            --namespace "${TARGET_NAMESPACE}" \
+                            -f "${HELM_CHART_PATH}/values-${ENVIRONMENT}.yaml" \
+                            --set backend.tag="${IMAGE_TAG}" \
+                            --set frontend.tag="${IMAGE_TAG}" \
+                            --set worker.tag="${IMAGE_TAG}" \
+                            --set image.registry="${ECR_REGISTRY}" \
+                            --set secrets.create=false \
+                          | kubectl apply --dry-run=server -f -
+                    '''
+                }
+            }
+        }
+
+        stage('Authenticate') {
+            steps {
+                container('deployer') {
+                    sh '''
+                        set -euo pipefail
+                        echo "Authenticated via jenkins-cd-deploy in-cluster ServiceAccount token (no kubeconfig file, no static credential)."
+                        kubectl config current-context || true
+                        kubectl auth can-i update deployments -n "${TARGET_NAMESPACE}"
+                        kubectl auth can-i delete nodes || echo "(expected: 'no' - this pipeline holds no cluster-admin permissions)"
+                    '''
+                }
+            }
+        }
+
+        stage('Production Approval') {
+            when { expression { params.ENVIRONMENT == 'prod' } }
+            steps {
+                timeout(time: 15, unit: 'MINUTES') {
+                    input message: "Deploy ${params.IMAGE_TAG} to PRODUCTION (namespace ${env.TARGET_NAMESPACE})?", ok: 'Deploy'
+                }
+            }
+        }
+
+        stage('Deploy') {
+            steps {
+                container('deployer') {
+                    sh '''
+                        set -euo pipefail
+                        helm upgrade --install "${HELM_RELEASE_NAME}" "${HELM_CHART_PATH}" \
+                            --namespace "${TARGET_NAMESPACE}" \
+                            -f "${HELM_CHART_PATH}/values-${ENVIRONMENT}.yaml" \
+                            --set backend.tag="${IMAGE_TAG}" \
+                            --set frontend.tag="${IMAGE_TAG}" \
+                            --set worker.tag="${IMAGE_TAG}" \
+                            --set image.registry="${ECR_REGISTRY}" \
+                            --set secrets.create=false \
+                            --description "tag=${IMAGE_TAG} build=${BUILD_NUMBER} ci=${CI_BUILD_URL:-manual} note=${RELEASE_DESCRIPTION:-n/a}" \
+                            --wait --atomic --timeout 5m
+                    '''
+                    // --create-namespace is deliberately NOT passed: this
+                    // pipeline's RBAC only permits get/patch on an ALREADY
+                    // EXISTING Namespace object (see jenkins/rbac/cd-deploy-
+                    // clusterrole-namespaces.yaml) - the two namespaces are
+                    // created once, out-of-band, by a cluster admin.
+                }
+            }
+        }
+
+        stage('Rollout') {
+            steps {
+                container('deployer') {
+                    sh '''
+                        set -euo pipefail
+                        for d in backend frontend worker; do
+                          kubectl rollout status "deployment/${d}" -n "${TARGET_NAMESPACE}" --timeout=180s
+                        done
+                    '''
+                }
+            }
+        }
+
+        stage('Verify') {
+            steps {
+                container('deployer') {
+                    sh '''
+                        set -euo pipefail
+                        kubectl get deployments,pods,services,ingress -n "${TARGET_NAMESPACE}"
+                        echo "---- running image per pod ----"
+                        kubectl get pods -n "${TARGET_NAMESPACE}" \
+                          -o jsonpath='{range .items[*]}{.metadata.name}{"\\t"}{.spec.containers[*].image}{"\\n"}{end}'
+                        echo "---- confirming IMAGE_TAG=${IMAGE_TAG} is actually running ----"
+                        kubectl get pods -n "${TARGET_NAMESPACE}" -o jsonpath='{..image}' | grep -q "${IMAGE_TAG}"
+                    '''
+                }
+            }
+        }
+
+        stage('Smoke Test') {
+            steps {
+                container('deployer') {
+                    sh '''
+                        set -euo pipefail
+                        echo "-- backend self health check --"
+                        kubectl exec -n "${TARGET_NAMESPACE}" deploy/backend -c backend -- \
+                          python3 -c "import urllib.request,sys; r=urllib.request.urlopen('http://localhost:5000/health',timeout=5); sys.exit(0 if r.status==200 else 1)"
+
+                        echo "-- backend -> frontend Service DNS + HTTP check --"
+                        kubectl exec -n "${TARGET_NAMESPACE}" deploy/backend -c backend -- \
+                          python3 -c "import urllib.request,sys; r=urllib.request.urlopen('http://frontend-svc.${TARGET_NAMESPACE}.svc.cluster.local/health',timeout=5); sys.exit(0 if r.status==200 else 1)"
+
+                        echo "Smoke test passed: backend is healthy and reachable from/through the cluster network."
+                    '''
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "CD deploy #${env.BUILD_NUMBER} succeeded: ${params.IMAGE_TAG} is live in ${env.TARGET_NAMESPACE} (${params.ENVIRONMENT})."
+        }
+        failure {
+            container('deployer') {
+                sh '''
+                    NS="${TARGET_NAMESPACE:-unknown}"
+                    echo "==== Recent events (diagnostics) ===="
+                    kubectl get events -n "${NS}" --sort-by=.metadata.creationTimestamp 2>/dev/null | tail -n 40 || true
+                    echo "==== Deployment status ===="
+                    kubectl get deployments,pods -n "${NS}" -o wide 2>/dev/null || true
+                    echo ""
+                    echo "==== ROLLBACK ===="
+                    echo "If this failure happened BEFORE the 'Deploy' stage (validation/auth/approval), nothing was changed - there is nothing to roll back."
+                    echo "If it happened DURING/AFTER 'Deploy', Helm's --atomic flag already rolled the release back to the previous revision automatically."
+                    echo "To roll back manually to any earlier revision:"
+                    echo "  helm history ${HELM_RELEASE_NAME} -n ${NS}"
+                    echo "  helm rollback ${HELM_RELEASE_NAME} <REVISION> -n ${NS} --wait"
+                '''
+            }
+        }
+    }
+}

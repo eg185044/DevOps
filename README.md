@@ -16,7 +16,10 @@ The final public page presents **Erez Glik's CV** through nginx on EC2 behind an
 
 ---
 
+
+
 ## Architecture
+
 
 ```text
 Windows 11 + VS Code
@@ -94,11 +97,97 @@ Ansible configures the servers:
 
 ---
 
+## Extended explanation - how everything fits together (plain English)
+
+This section is the "explain it to a new teammate" version of this project -
+read this first if the sections above feel like too much detail too fast.
+
+### One-sentence summary
+
+A personal CV (resume) website, built the way a real production app would be:
+three small services, deployable to AWS two different ways, with an
+automated build pipeline in front of it.
+
+### The analogy
+
+- **Terraform** = construction crew - builds the building itself (servers,
+  network, load balancer).
+- **Ansible** = the crew that installs equipment inside each room (installs
+  Docker, nginx, deploys the apps onto the servers Terraform built).
+- **Docker** = pre-packaged meal kits - the app code boxed up so it runs
+  identically anywhere.
+- **Kubernetes** = a newer, self-managing restaurant that runs those meal
+  kits directly, without needing a separate building per kit.
+- **Jenkins** = the automatic assembly line that builds and checks every
+  meal kit before it is allowed to reach a restaurant.
+
+### The application itself - just 3 small services (`app/`)
+
+| Service    | What it is    | What it does                                              |
+|------------|---------------|------------------------------------------------------------|
+| `frontend` | nginx         | Serves the CV webpage - the only thing a visitor talks to  |
+| `backend`  | Flask (Python)| API: CV data, health checks, DB, S3, SNS                   |
+| `worker`   | Python        | Background/async jobs                                      |
+
+`frontend` proxies `/api/*` to `backend` and `/worker/*` to `worker`. That is
+the entire application - everything else in this repo exists to build,
+configure, and run these three pieces.
+
+### Two ways to deploy the same 3 services
+
+**Path A - classic AWS (`terraform/` + `ansible/`)**, documented step-by-step
+above and in `docs/baby-steps-runbook.md`: Terraform creates a VPC, subnets,
+4 EC2 instances (Ansible controller + frontend + backend + worker), an NLB,
+RDS, S3, and SNS. Ansible then SSHes in from the controller and installs
+Docker/nginx and deploys the three services onto those EC2 instances.
+
+**Path B - Kubernetes (`k8s/`)**: the same 3 services, containerized, running
+as Pods in one cluster (EKS, or a free local `kind` cluster for practice -
+see `docs/local-kind-runbook.md`) instead of on 3 separate EC2 instances
+glued together by Ansible. Full detail in `k8s/README.md`, including
+Deployments/Services, an Ingress as the only door open to the internet,
+NetworkPolicies (deny-by-default firewall between Pods), least-privilege
+RBAC/ServiceAccounts, Helm charts (`k8s/helm/`), and GitOps via ArgoCD
+(`k8s/argocd/`) so the cluster stays in sync with Git automatically instead
+of requiring manual `kubectl`/`helm` commands. RDS/S3/SNS stay outside the
+cluster either way - Kubernetes only replaces the "3 EC2 instances" part,
+not the AWS data services.
+
+### CI/CD: Jenkins running inside Kubernetes (Mission 4)
+
+Jenkins itself runs as a Pod inside the same EKS cluster as Path B,
+installed entirely from code (Helm + JCasC - no manual UI setup). Two
+separate pipelines, matching the CI/CD separation principle: `ci-Jenkinsfile`
+(checkout, lint, unit tests, Docker build via kaniko, Trivy scan, push to
+ECR with an immutable `<commit-sha>-b<build-number>` tag, never `latest`)
+and `cd-Jenkinsfile` (takes that exact tag, `helm upgrade --install`s
+`k8s/helm/cv-platform`, waits for rollout, runs a smoke test, prints
+rollback instructions on failure). CI never deploys; CD never rebuilds an
+image. Full details, architecture diagrams, and the security write-up
+live in **[jenkins/README.md](jenkins/README.md)**.
+
+### End-to-end flow, in order
+
+1. Code lives in GitHub.
+2. Jenkins (running in-cluster - see `jenkins/`) lints, tests, builds and
+   scans it on every push (`ci-Jenkinsfile`), then `cd-Jenkinsfile` deploys
+   the exact image that passed CI.
+3. Infrastructure gets created either the old way (Terraform + Ansible +
+   EC2) or the new way (`kubectl`/Helm/ArgoCD + Kubernetes).
+4. Either way, it is the same 3 containers, and the same external
+   RDS/S3/SNS.
+5. A visitor hits the Load Balancer (Path A) or Ingress (Path B) -> nginx
+   frontend -> proxies to backend/worker -> CV renders, API calls work.
+6. `terraform destroy` or `kubectl delete namespace devops-app` tears it
+   down when finished, so nothing keeps costing money.
+
+---
+
 ## Folder structure
 
 ```text
-terraform/                 AWS infrastructure as code
-ansible/                   Configuration management
+terraform/                 AWS infrastructure as code (Path A)
+ansible/                   Configuration management (Path A)
 ansible/roles/nginx        nginx package role with handler/template
 ansible/run-terraform.yml  Optional playbook to run terraform from ansible
 app/frontend/public        CV website
@@ -106,7 +195,10 @@ app/backend                Flask backend Docker service
 app/worker                 Worker Docker service
 docs                       Runbook, architecture, mapping, checklist
 scripts                    Windows and controller helper scripts
-k8s                        CNCF/Kubernetes extension placeholder
+k8s                        Kubernetes deployment (Path B): manifests, Helm charts, ArgoCD GitOps
+jenkins                    Jenkins-on-Kubernetes: Helm values, JCasC, RBAC, install/verify scripts
+ci-Jenkinsfile             CI pipeline: lint, test, build (kaniko), scan (Trivy), push to ECR
+cd-Jenkinsfile             CD pipeline: helm upgrade to k8s/helm/cv-platform, rollout, smoke test
 ```
 
 ---

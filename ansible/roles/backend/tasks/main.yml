@@ -9,7 +9,7 @@
 
 - name: Copy backend application
   ansible.builtin.copy:
-    src: "../../../../app/backend/"
+    src: "{{ playbook_dir }}/../app/backend/"
     dest: "{{ app_root }}/backend/"
     owner: ubuntu
     group: ubuntu

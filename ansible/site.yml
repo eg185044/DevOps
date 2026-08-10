@@ -33,6 +33,16 @@
   roles:
     - backend
 
+  post_tasks:
+    - name: Test backend local health endpoint
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ backend_port }}/health"
+        status_code: 200
+      register: backend_health
+      retries: 5
+      delay: 3
+      until: backend_health.status == 200
+
 - name: Deploy worker Docker microservice
   hosts: worker
   become: true
@@ -40,6 +50,16 @@
     - group_vars/secrets-vault.yml
   roles:
     - worker
+
+  post_tasks:
+    - name: Test worker local health endpoint
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ worker_port }}/health"
+        status_code: 200
+      register: worker_health
+      retries: 5
+      delay: 3
+      until: worker_health.status == 200
 
 - name: Install and configure Nginx frontend role
   hosts: frontend

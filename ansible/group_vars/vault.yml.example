@@ -1,3 +1,0 @@
-# Copy this file to group_vars/vault.yml and encrypt it:
-# ansible-vault encrypt group_vars/vault.yml
-vault_db_password: "CHANGE_ME_STRONG_PASSWORD"

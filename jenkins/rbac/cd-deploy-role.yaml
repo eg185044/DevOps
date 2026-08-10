@@ -1,0 +1,74 @@
+# Namespaced Role in the APPLICATION namespace (devops-app), NOT a
+# ClusterRole. This is the only place the CD pipeline is granted any
+# Kubernetes permission at all - it cannot touch any other namespace,
+# and it cannot touch cluster-scoped resources (no Nodes, no
+# ClusterRoles/ClusterRoleBindings, no CRDs, no Namespaces themselves).
+#
+# Why each resource is here:
+#   - deployments/replicasets/pods (read) : `helm upgrade --install` +
+#     `kubectl rollout status` + `kubectl get pods -o jsonpath=...` (verify).
+#   - pods/exec, pods/log             : the CD smoke-test stage execs into
+#     the already-running backend Pod to curl the app over the cluster
+#     network - it never creates or deletes Pods itself (Pods for
+#     Deployments are created by the Deployment controller, not by this
+#     RoleBinding's subject).
+#   - services, ingresses, configmaps, serviceaccounts, jobs, cronjobs,
+#     persistentvolumeclaims, networkpolicies : these are exactly the
+#     object kinds the k8s/helm/cv-platform chart renders (see
+#     k8s/helm/cv-platform/templates/) - `helm upgrade --install` needs
+#     create/update/patch/delete on each to reconcile them.
+#   - secrets                         : (a) Helm stores its own release
+#     history as a Secret in the release namespace - this is unavoidable
+#     with the default Helm storage backend; (b) the chart's
+#     `db-credentials` Secret is created here only when `secrets.create`
+#     is left true, which this project turns off in CI/CD (see
+#     jenkins/README.md) so the CD pipeline never actually writes
+#     application secret *values*, only Helm's own release bookkeeping.
+#   - roles, rolebindings (rbac.authorization.k8s.io) : the chart's own
+#     `templates/rbac.yaml` creates the app's least-privilege
+#     ServiceAccounts/Role/RoleBinding (see k8s/rbac/) - Helm needs write
+#     access to those *namespaced* RBAC objects to manage them. This is
+#     the single broadest permission on this Role; it is intentionally
+#     restricted to `roles`/`rolebindings` (never `clusterroles` /
+#     `clusterrolebindings`) and scoped to this one namespace only.
+#   - events (read)                   : `kubectl get events` for failure
+#     diagnostics, required by the CD "Failure Handling" stage.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cd-deployer
+  namespace: devops-app
+  labels:
+    app.kubernetes.io/name: jenkins
+    app.kubernetes.io/component: cd-agent
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create", "get"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["services", "configmaps", "serviceaccounts", "persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses", "networkpolicies"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["roles", "rolebindings"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]

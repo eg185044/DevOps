@@ -1,0 +1,16 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: jenkins-controller
+  namespace: jenkins
+  labels:
+    app.kubernetes.io/name: jenkins
+    app.kubernetes.io/component: controller
+subjects:
+  - kind: ServiceAccount
+    name: jenkins-controller
+    namespace: jenkins
+roleRef:
+  kind: Role
+  name: jenkins-controller
+  apiGroup: rbac.authorization.k8s.io

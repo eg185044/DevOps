@@ -1,0 +1,37 @@
+# Namespace-scoped Role (NOT a ClusterRole) - the controller can only act
+# inside its own `jenkins` namespace. This is what lets the Kubernetes
+# plugin create/watch/delete dynamic agent Pods and stream their logs.
+# No access to Secrets/ConfigMaps outside this list, no access to any
+# resource in `devops-app`, no cluster-admin, no wildcard verbs/resources.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: jenkins-controller
+  namespace: jenkins
+  labels:
+    app.kubernetes.io/name: jenkins
+    app.kubernetes.io/component: controller
+rules:
+  # Kubernetes plugin: provision/tear down agent Pods for every build.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch", "create", "delete", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create", "get"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list"]
+# No "secrets" or "configmaps" rule: the admin-credentials Secret and JCasC
+# ConfigMap are mounted into the controller Pod by the kubelet as part of
+# the Pod spec (set once at Helm install time) - that does NOT require the
+# controller's own ServiceAccount to call the Secrets/ConfigMaps API, so we
+# do not grant it. If a future change adds the Kubernetes Credentials
+# Provider plugin (dynamic Secret -> Jenkins credential sync), a scoped
+# get/list/watch rule on "secrets" would need to be added here explicitly.

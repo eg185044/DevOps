@@ -1,0 +1,49 @@
+# Reproducible Jenkins plugin list (jenkins-plugin-cli format: id:version).
+# Installed automatically by the official Helm chart's initContainer
+# (controller.installPlugins in jenkins/helm/values.yaml references this
+# file) - never installed by hand through the UI's Plugin Manager.
+#
+# Versions pinned below were current LTS-compatible releases at the time
+# this project was built. Before a real deploy, re-resolve them with:
+#   docker run --rm -v $(pwd)/jenkins:/work -w /work jenkins/jenkins:2.479.3-lts-jdk17 \
+#     jenkins-plugin-cli --plugin-file plugins.txt --list
+# which prints the exact transitive dependency set jenkins-plugin-cli
+# would install, so drift is caught before it reaches the cluster.
+
+# --- Configuration as Code (JCasC): controller config from git, not UI ---
+configuration-as-code:1815.v13675a_0da_6a_9
+configuration-as-code-support:1.20
+
+# --- Kubernetes cloud: dynamic agent Pods ---
+kubernetes:4327.va_1b_9013e6a_a_e
+kubernetes-credentials-provider:1.263.v0e6ff10bd7b_1
+
+# --- Pipeline engine + SCM ---
+workflow-aggregator:600.vb_57cdd26fdd7
+git:5.5.0
+git-client:4.7.0
+scm-api:698.v8e3b_c788f0a_7
+pipeline-utility-steps:2.19.0
+pipeline-stage-view:2.34
+durable-task:583.v2d0a_5eea_a_c9c
+
+# --- Job creation as code (seed job -> Job DSL) ---
+job-dsl:1.90
+
+# --- SCM trigger (Git push webhook) ---
+github:1.39.0
+github-branch-source:1789.v3ba_bcfe2f8b_e
+
+# --- Credentials handling / masking ---
+credentials:1341.vecca_a_878fb_a_a_
+credentials-binding:657.v2b_19db_7d6e6d
+plain-credentials:183.va_de8f1dd5a_2b_
+
+# --- Test result publishing (CI "Tests" stage) ---
+junit:1263.v65b_14fa_f12f0
+
+# --- Build hygiene / traceability ---
+timestamper:1.28
+ws-cleanup:0.48
+build-timeout:1.34
+ansicolor:1.0.5

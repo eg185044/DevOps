@@ -1,0 +1,61 @@
+# The ONE cluster-scoped permission this whole project grants to Jenkins,
+# and it is deliberately as narrow as Kubernetes RBAC allows - explained
+# in full here because Mission 4 requires "explain every broad
+# permission":
+#
+# Why a ClusterRole is unavoidable: k8s/helm/cv-platform/templates/
+# namespace.yaml renders a `Namespace` object, and Namespace is a
+# cluster-scoped kind - a namespaced Role/RoleBinding CANNOT authorize any
+# verb against a cluster-scoped resource, by a hard Kubernetes RBAC rule
+# (not a choice we made). Some ClusterRole is required for Helm to
+# reconcile that one object at all.
+#
+# How it stays least-privilege despite that:
+#   - resourceNames is set to the exact two namespaces this project ever
+#     uses (devops-app, devops-app-dev) - nothing else.
+#   - verbs are ONLY "get" and "patch". "create" is deliberately NOT
+#     granted: Kubernetes RBAC cannot restrict a `create` request by
+#     resourceNames (the API server has no name to check yet at
+#     authorization time for a not-yet-existing object), so granting
+#     "create" here would let this identity create a namespace with ANY
+#     name, cluster-wide - a real privilege escalation this project
+#     refuses to accept just to save one manual step.
+#   - Consequence: devops-app and devops-app-dev must each be created
+#     ONCE, out-of-band, by a human with real cluster-admin access,
+#     before the very first CD run - see jenkins/README.md "One-time
+#     cluster bootstrap". Every CD run after that only ever needs to
+#     read/relabel a Namespace that already exists, which is exactly
+#     what "get" + "patch" cover.
+#
+# This is intentionally still not "cluster-admin": it cannot list/read/
+# modify any OTHER cluster-scoped resource (no Nodes, no
+# ClusterRoles/ClusterRoleBindings, no CRDs, no PersistentVolumes, no
+# other namespace), and it cannot delete even these two.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cd-deployer-namespaces
+  labels:
+    app.kubernetes.io/name: jenkins
+    app.kubernetes.io/component: cd-agent
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    resourceNames: ["devops-app", "devops-app-dev"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: jenkins-cd-deploy-namespaces
+  labels:
+    app.kubernetes.io/name: jenkins
+    app.kubernetes.io/component: cd-agent
+subjects:
+  - kind: ServiceAccount
+    name: jenkins-cd-deploy
+    namespace: jenkins
+roleRef:
+  kind: ClusterRole
+  name: cd-deployer-namespaces
+  apiGroup: rbac.authorization.k8s.io
