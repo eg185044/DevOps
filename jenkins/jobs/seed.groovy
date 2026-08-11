@@ -10,8 +10,16 @@
 // allowed mechanisms). Manually creating these jobs through the Jenkins UI
 // is explicitly out of scope and is never done anywhere in this project.
 
-def gitRepoUrl = env.GIT_REPO_URL
-def gitCredentialsId = env.GIT_CREDENTIALS_ID ?: ''
+// Job DSL scripts do NOT get Pipeline's `env` global variable - that
+// binding only exists inside actual Pipeline steps, not the plain Groovy
+// Binding the jobDsl step evaluates this file in (confirmed against a
+// real cluster: `env.GIT_REPO_URL` throws "No such property: env").
+// System.getenv() reads the real process environment instead, which
+// still sees these values because jenkins/jcasc/jenkins.yaml's
+// globalNodeProperties injects them as actual environment variables on
+// every node, controller included.
+def gitRepoUrl = System.getenv('GIT_REPO_URL')
+def gitCredentialsId = System.getenv('GIT_CREDENTIALS_ID') ?: ''
 
 // ---------------------------------------------------------------------
 // Job 1: ci-application - points at ci-Jenkinsfile, triggered by SCM

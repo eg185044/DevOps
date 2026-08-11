@@ -70,7 +70,7 @@ jenkins:
                     type: RuntimeDefault
                 containers:
                   - name: "jnlp"
-                    image: "jenkins/inbound-agent:3283.v92c105e0f819-1"
+                    image: "jenkins/inbound-agent:3283.v92c105e0f819-1-jdk21"
                     resources:
                       requests: { cpu: "100m", memory: "256Mi" }
                       limits: { cpu: "500m", memory: "512Mi" }
@@ -164,7 +164,7 @@ jenkins:
                     type: RuntimeDefault
                 containers:
                   - name: "jnlp"
-                    image: "jenkins/inbound-agent:3283.v92c105e0f819-1"
+                    image: "jenkins/inbound-agent:3283.v92c105e0f819-1-jdk21"
                     resources:
                       requests: { cpu: "100m", memory: "256Mi" }
                       limits: { cpu: "500m", memory: "512Mi" }
@@ -241,9 +241,20 @@ jobs:
                 // whichever container happens to be first in the template.
                 container("jnlp") {
                   stage("Checkout seed source") {
-                    git(url: env.GIT_REPO_URL, credentialsId: env.GIT_CREDENTIALS_ID)
+                    git(url: env.GIT_REPO_URL, branch: "main", credentialsId: env.GIT_CREDENTIALS_ID)
                   }
                   stage("Run Job DSL") {
+                    // Not sandboxed: sandboxed Job DSL execution additionally
+                    // requires a configured "run as specific user" security
+                    // context that the Pipeline jobDsl step has no way to
+                    // set (confirmed against a real cluster: "You must
+                    // configure the DSL job to run as a specific user in
+                    // order to use the Groovy sandbox"). Trusted execution
+                    // is safe to rely on instead specifically because
+                    // useScriptSecurity is turned off below - deliberately,
+                    // because this script's only possible source is the one
+                    // Git repository this seed job itself checks out from
+                    // (GIT_REPO_URL), never arbitrary/user-submitted input.
                     jobDsl(
                       targets: "jenkins/jobs/seed.groovy",
                       removedJobAction: "IGNORE",

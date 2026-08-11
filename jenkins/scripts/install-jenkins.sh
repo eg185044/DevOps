@@ -17,7 +17,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."   # repo root
 
-JENKINS_CHART_VERSION="${JENKINS_CHART_VERSION:-5.7.15}"
+JENKINS_CHART_VERSION="${JENKINS_CHART_VERSION:-5.9.53}"
 GIT_REPO_URL="${GIT_REPO_URL:?Set GIT_REPO_URL to this repository's clone URL}"
 ECR_REGISTRY="${ECR_REGISTRY:?Set ECR_REGISTRY, e.g. 123456789012.dkr.ecr.eu-west-1.amazonaws.com}"
 ECR_REPO_PREFIX="${ECR_REPO_PREFIX:-erez-cv-devops}"

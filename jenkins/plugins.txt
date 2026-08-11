@@ -3,47 +3,69 @@
 # (controller.installPlugins in jenkins/helm/values.yaml references this
 # file) - never installed by hand through the UI's Plugin Manager.
 #
-# Versions pinned below were current LTS-compatible releases at the time
-# this project was built. Before a real deploy, re-resolve them with:
-#   docker run --rm -v $(pwd)/jenkins:/work -w /work jenkins/jenkins:2.479.3-lts-jdk17 \
-#     jenkins-plugin-cli --plugin-file plugins.txt --list
-# which prints the exact transitive dependency set jenkins-plugin-cli
-# would install, so drift is caught before it reaches the cluster.
+# These exact versions were resolved (not guessed) by running
+# jenkins-plugin-cli's real dependency resolver against the pinned
+# controller image, confirming every one of them - and their full
+# transitive dependency tree - is mutually compatible with that Jenkins
+# core version:
+#   docker run --rm -v "$(pwd)/jenkins/plugins.txt:/plugins.txt:ro" \
+#     jenkins/jenkins:2.568.2-jdk21 \
+#     jenkins-plugin-cli --plugin-file /plugins.txt --list
+# Re-run that command (with a fresh core tag) any time this file or the
+# controller image tag changes - an untested pin here is worse than no
+# pin at all, since it fails at container startup instead of at review
+# time (this project's first install attempt hit exactly that: plugin
+# versions pinned from memory required a newer Jenkins core than the
+# image tag also pinned from memory - fixed by resolving both for real).
 
 # --- Configuration as Code (JCasC): controller config from git, not UI ---
-configuration-as-code:1815.v13675a_0da_6a_9
-configuration-as-code-support:1.20
+configuration-as-code:2117.vc05a_0b_e6b_f4e
+configuration-as-code-support:1.18
 
 # --- Kubernetes cloud: dynamic agent Pods ---
-kubernetes:4327.va_1b_9013e6a_a_e
-kubernetes-credentials-provider:1.263.v0e6ff10bd7b_1
+kubernetes:4540.v612369217f87
+# kubernetes-credentials-provider deliberately NOT installed: it starts a
+# background watcher against the Kubernetes Secrets API at controller
+# boot unconditionally (regardless of whether any credential-shaped
+# Secret exists), which (a) would need configmaps/secrets RBAC on
+# jenkins-controller's ServiceAccount that jenkins/rbac/controller-
+# role.yaml deliberately withholds, and (b) crashed the controller
+# outright in this exact pinned version against a real cluster
+# (ClassNotFoundException: okhttp3.internal.connection.RetryTlsHandshakeKt,
+# an okhttp-api version mismatch surfaced by that plugin's own startup
+# code path - see jenkins/README.md "What was and wasn't run live").
+# The chart's native `controller.additionalExistingSecrets` /
+# `${secret-name-key}` JCasC substitution (see jenkins/README.md
+# "Creating Jenkins secrets") covers the one thing this project actually
+# needs a Secret-backed credential for - the optional private-repo Git
+# token - without this plugin at all.
 
 # --- Pipeline engine + SCM ---
-workflow-aggregator:600.vb_57cdd26fdd7
-git:5.5.0
-git-client:4.7.0
-scm-api:698.v8e3b_c788f0a_7
-pipeline-utility-steps:2.19.0
-pipeline-stage-view:2.34
-durable-task:583.v2d0a_5eea_a_c9c
+workflow-aggregator:608.v67378e9d3db_1
+git:5.10.1
+git-client:6.6.1
+scm-api:728.vc30dcf7a_0df5
+pipeline-utility-steps:3.810.va_7672d206740
+pipeline-stage-view:2.41
+durable-task:686.v80ff80875b_82
 
 # --- Job creation as code (seed job -> Job DSL) ---
-job-dsl:1.90
+job-dsl:3654.vdf58f53e2d15
 
 # --- SCM trigger (Git push webhook) ---
-github:1.39.0
-github-branch-source:1789.v3ba_bcfe2f8b_e
+github:1.47.0
+github-branch-source:1983.vfa_27ed961853
 
 # --- Credentials handling / masking ---
-credentials:1341.vecca_a_878fb_a_a_
-credentials-binding:657.v2b_19db_7d6e6d
-plain-credentials:183.va_de8f1dd5a_2b_
+credentials:1511.v2e3cb_0008ef0
+credentials-binding:728.v902a_273b_8947
+plain-credentials:199.v9f8e1f741799
 
 # --- Test result publishing (CI "Tests" stage) ---
-junit:1263.v65b_14fa_f12f0
+junit:1418.v67a_81935603c
 
 # --- Build hygiene / traceability ---
-timestamper:1.28
-ws-cleanup:0.48
-build-timeout:1.34
-ansicolor:1.0.5
+timestamper:1.30
+ws-cleanup:0.49
+build-timeout:1.41
+ansicolor:542.v03d235fee02d

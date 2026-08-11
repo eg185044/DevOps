@@ -49,8 +49,8 @@ Namespaces: `jenkins` (Jenkins itself) and `devops-app` / `devops-app-dev`
 |---|---|---|
 | kubectl | >= 1.29 | matches the EKS control plane version this project targets |
 | helm | >= 3.14 | `--atomic`, `helm template \| kubectl apply --dry-run=server` |
-| Jenkins Helm chart | `jenkins/jenkins` 5.7.15 (pinned) | official chart, see [helm/values.yaml](helm/values.yaml) header |
-| Jenkins controller image | `jenkins/jenkins:2.479.3-lts-jdk17` (pinned) | LTS, never `latest` |
+| Jenkins Helm chart | `jenkins/jenkins` 5.9.53 (pinned) | official chart, see [helm/values.yaml](helm/values.yaml) header |
+| Jenkins controller image | `jenkins/jenkins:2.568.2-jdk21` (pinned) | never `latest`; confirmed to pull and reach Ready against a real cluster |
 | Plugins | pinned in [plugins.txt](plugins.txt) | reproducible installs |
 | AWS CLI | >= 2.15 | only used to look up/verify the IRSA role ARN during bootstrap |
 
@@ -77,7 +77,7 @@ export CI_IAM_ROLE_ARN=arn:aws:iam::<account-id>:role/erez-cv-devops-jenkins-ci-
   `devops-app`/`devops-app-dev` if missing, generates the Jenkins admin
   password if it doesn't already exist (printed once, never written to
   disk), applies every RBAC file, then installs Jenkins via
-  `helm upgrade --install jenkins-controller jenkins/jenkins --version 5.7.15 ...`
+  `helm upgrade --install jenkins-controller jenkins/jenkins --version 5.9.53 ...`
   with JCasC and plugins wired in (see
   [scripts/install-jenkins.sh](scripts/install-jenkins.sh) for the exact
   command with every flag commented).

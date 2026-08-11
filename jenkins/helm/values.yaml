@@ -4,7 +4,7 @@
 #   helm repo add jenkins https://charts.jenkins.io
 #   helm repo update
 #   helm upgrade --install jenkins-controller jenkins/jenkins \
-#     --version 5.7.15 \
+#     --version 5.9.53 \
 #     --namespace jenkins --create-namespace \
 #     -f jenkins/helm/values.yaml \
 #     --set-file controller.JCasC.configScripts.main=jenkins/jcasc/jenkins.yaml
@@ -12,26 +12,41 @@
 # (the exact command, with every flag explained, lives in
 # jenkins/scripts/install-jenkins.sh - do not hand-type this).
 #
-# Chart version 5.7.15 is pinned deliberately (never "latest") - re-verify
-# the current chart version with `helm search repo jenkins/jenkins
-# --versions` before a real deploy and update both this comment and
-# install-jenkins.sh together.
+# Chart version 5.9.53 (app version 2.568.2) is pinned deliberately (never
+# "latest") - re-verify the current chart version with `helm search repo
+# jenkins/jenkins --versions` before a real deploy and update this
+# comment, controller.image.tag below, jenkins/plugins.txt (re-resolved
+# against the new core - see that file's header), and install-jenkins.sh
+# together. This exact pin was installed and brought to a Ready state
+# against a real cluster while building this project (see
+# jenkins/README.md "What was and wasn't run live") - an earlier,
+# untested pin (chart 5.7.15 / core 2.479.3) failed at container startup
+# because current plugin releases require a newer core; this one doesn't.
+#
+# Every key path below was verified against the real chart with
+# `helm show values jenkins/jenkins --version 5.9.53` - two top-level keys
+# (`serviceAccount`, `persistence`) live OUTSIDE `controller:` in this
+# chart, not nested under it; get that wrong and Helm refuses to install
+# ("exists and cannot be imported into the current release") because it
+# tries to adopt the ServiceAccount this project pre-creates in
+# jenkins/rbac/. Confirmed against a real cluster, not just read from docs.
 
 controller:
-  # Pinned LTS image - never "latest". Re-check the current LTS tag at
-  # https://www.jenkins.io/download/ before a real deploy.
+  # Pinned image - never "latest". Confirmed to actually exist and pull
+  # (`docker pull jenkins/jenkins:2.568.2-jdk21`) and to reach Ready
+  # against a real cluster before being committed - re-check
+  # https://www.jenkins.io/download/ before a future deploy.
   image:
     repository: "jenkins/jenkins"
-    tag: "2.479.3-lts-jdk17"
+    tag: "2.568.2-jdk21"
   imagePullPolicy: IfNotPresent
 
-  # We manage the ServiceAccount + Role + RoleBinding ourselves in
-  # jenkins/rbac/ (applied by scripts/install-jenkins.sh before this Helm
-  # release) so that RBAC is reviewable as plain manifests rather than
-  # chart-templated - the chart is told to use it, not create its own.
-  serviceAccount:
-    create: false
-    name: "jenkins-controller"
+  # We manage our own admin Secret + securityRealm via JCasC (see
+  # jenkins/jcasc/jenkins.yaml) - tell the chart not to also generate its
+  # own random-password admin Secret, which JCasC's own default config
+  # would otherwise still create (unused, but confusing to find later).
+  admin:
+    createSecret: false
 
   # Non-root by default - the official image already runs as uid 1000
   # (the "jenkins" user); this just makes that explicit and enforced.
@@ -56,40 +71,78 @@ controller:
   # two in sync (jenkins/scripts/configure-jenkins.sh checks this before
   # every install/upgrade and fails loudly on drift).
   installPlugins:
-    - "configuration-as-code:1815.v13675a_0da_6a_9"
-    - "configuration-as-code-support:1.20"
-    - "kubernetes:4327.va_1b_9013e6a_a_e"
-    - "kubernetes-credentials-provider:1.263.v0e6ff10bd7b_1"
-    - "workflow-aggregator:600.vb_57cdd26fdd7"
-    - "git:5.5.0"
-    - "git-client:4.7.0"
-    - "scm-api:698.v8e3b_c788f0a_7"
-    - "pipeline-utility-steps:2.19.0"
-    - "pipeline-stage-view:2.34"
-    - "durable-task:583.v2d0a_5eea_a_c9c"
-    - "job-dsl:1.90"
-    - "github:1.39.0"
-    - "github-branch-source:1789.v3ba_bcfe2f8b_e"
-    - "credentials:1341.vecca_a_878fb_a_a_"
-    - "credentials-binding:657.v2b_19db_7d6e6d"
-    - "plain-credentials:183.va_de8f1dd5a_2b_"
-    - "junit:1263.v65b_14fa_f12f0"
-    - "timestamper:1.28"
-    - "ws-cleanup:0.48"
-    - "build-timeout:1.34"
-    - "ansicolor:1.0.5"
+    - "configuration-as-code:2117.vc05a_0b_e6b_f4e"
+    - "configuration-as-code-support:1.18"
+    - "kubernetes:4540.v612369217f87"
+    # kubernetes-credentials-provider intentionally omitted - see the long
+    # comment in jenkins/plugins.txt (crashed the controller against a
+    # real cluster; not needed given controller.additionalExistingSecrets below).
+    - "workflow-aggregator:608.v67378e9d3db_1"
+    - "git:5.10.1"
+    - "git-client:6.6.1"
+    - "scm-api:728.vc30dcf7a_0df5"
+    - "pipeline-utility-steps:3.810.va_7672d206740"
+    - "pipeline-stage-view:2.41"
+    - "durable-task:686.v80ff80875b_82"
+    - "job-dsl:3654.vdf58f53e2d15"
+    - "github:1.47.0"
+    - "github-branch-source:1983.vfa_27ed961853"
+    - "credentials:1511.v2e3cb_0008ef0"
+    - "credentials-binding:728.v902a_273b_8947"
+    - "plain-credentials:199.v9f8e1f741799"
+    - "junit:1418.v67a_81935603c"
+    - "timestamper:1.30"
+    - "ws-cleanup:0.49"
+    - "build-timeout:1.41"
+    - "ansicolor:542.v03d235fee02d"
+
+  # Trusted Groovy init script (runs unsandboxed at controller startup,
+  # unlike JCasC) - disables Job DSL's "approve every script change"
+  # requirement. Confirmed against a real cluster that the equivalent
+  # JCasC `unclassified` key does NOT exist for the installed job-dsl
+  # plugin version (ConfigurationAsCode.init throws
+  # UnknownAttributesException listing every valid `unclassified`
+  # attribute - "globalJobDslSecurityConfiguration" isn't one of them),
+  # so this is the one setting in this project NOT expressed via JCasC.
+  # Safe here because the only Job DSL script this controller ever runs
+  # is jenkins/jobs/seed.groovy, checked out from the one Git URL the
+  # seed job is configured with (GIT_REPO_URL) - never arbitrary or
+  # user-submitted DSL.
+  initScripts:
+    disable-job-dsl-script-security: |
+      import javaposse.jobdsl.plugin.GlobalJobDslSecurityConfiguration
+      import jenkins.model.GlobalConfiguration
+      def cfg = GlobalConfiguration.all().get(GlobalJobDslSecurityConfiguration)
+      if (cfg != null && cfg.useScriptSecurity) {
+        cfg.useScriptSecurity = false
+        cfg.save()
+      }
 
   # JCasC content is supplied at install time via
   #   --set-file controller.JCasC.configScripts.main=jenkins/jcasc/jenkins.yaml
   # (see scripts/install-jenkins.sh) so the YAML lives in exactly one file,
-  # not duplicated here.
+  # not duplicated here. Our configScripts defines its own top-level
+  # `jenkins.securityRealm` / `jenkins.authorizationStrategy`, which the
+  # chart's own JCasC.defaultConfig defaults explicitly defer to (see the
+  # chart's own values.yaml comment: "Ignored if securityRealm is defined
+  # in controller.JCasC.configScripts").
+  # defaultConfig: false - the chart's own baseline JCasC fragment
+  # duplicates keys our configScripts.main already sets in full
+  # (numExecutors, mode, even its own "kubernetes" cloud pointing at the
+  # same jenkinsUrl/tunnel) and JCasC hard-errors on ANY key defined in
+  # two sources, even with identical values (confirmed against a real
+  # cluster: "ConfiguratorConflictException: Found conflicting
+  # configuration... numExecutors"). jenkins/jcasc/jenkins.yaml is
+  # already a complete, self-sufficient config - security realm,
+  # authorization, the Kubernetes cloud + both pod templates, global env,
+  # and the seed job - so it becomes the single source of truth instead.
   JCasC:
-    defaultConfig: true
+    defaultConfig: false
     configScripts: {}
 
   # Non-secret configuration only - real credentials come from a K8s
-  # Secret (see jenkins/secrets/values-secrets.example.yaml) referenced by
-  # secretKeyRef below, never as plaintext values here.
+  # Secret (see jenkins/secrets/jenkins-admin-credentials.secret.example.yaml)
+  # referenced by secretKeyRef below, never as plaintext values here.
   containerEnv:
     - name: ADMIN_USER
       valueFrom:
@@ -135,12 +188,6 @@ controller:
       periodSeconds: 10
       failureThreshold: 3
 
-  persistence:
-    enabled: true
-    storageClass: "gp3"   # matches k8s/pvc.yaml's StorageClass choice for this project
-    size: "8Gi"
-    accessMode: "ReadWriteOnce"
-
   serviceType: ClusterIP   # never LoadBalancer - see "Accessing the Jenkins UI" in jenkins/README.md
   servicePort: 8080
 
@@ -159,6 +206,37 @@ controller:
       nginx.ingress.kubernetes.io/whitelist-source-range: "REPLACE_ME_CIDR/32"
 
   javaOpts: "-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0"
+
+  # The chart's default "live JCasC reload" sidecar watches ConfigMaps via
+  # the Kubernetes API, which would require granting jenkins-controller's
+  # ServiceAccount configmaps get/list/watch - a permission
+  # jenkins/rbac/controller-role.yaml deliberately does not grant (see its
+  # comment). We don't need live reload: jenkins/scripts/configure-
+  # jenkins.sh already re-runs `helm upgrade`, which restarts the
+  # StatefulSet and re-reads JCasC on boot - so this stays off to keep the
+  # controller's RBAC footprint as small as possible.
+  sidecars:
+    configAutoReload:
+      enabled: false
+
+# We manage the ServiceAccount + Role + RoleBinding ourselves as plain,
+# reviewable manifests in jenkins/rbac/ (applied by scripts/install-
+# jenkins.sh BEFORE this Helm release) - both `create: false` here so the
+# chart uses that pre-existing ServiceAccount/RBAC instead of trying to
+# render (and then failing to "adopt") its own same-named copies.
+# NOTE: these are top-level keys in this chart, NOT nested under `controller:`.
+serviceAccount:
+  create: false
+  name: "jenkins-controller"
+
+rbac:
+  create: false
+
+persistence:
+  enabled: true
+  storageClass: "gp3"   # matches k8s/pvc.yaml's StorageClass choice for this project; override at install time for non-EBS clusters (see install-jenkins.sh)
+  size: "8Gi"
+  accessMode: "ReadWriteOnce"
 
 # Dynamic agents ONLY - no statically-provisioned "default" agent pool.
 # Every agent Pod comes from the Kubernetes cloud + templates defined in
