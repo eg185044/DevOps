@@ -1,0 +1,145 @@
+{
+  "title": "Kubernetes / Cluster",
+  "uid": "erez-cv-kubernetes-cluster",
+  "tags": ["erez-cv-devops", "kubernetes"],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Nodes Ready",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "sum(kube_node_status_condition{condition=\"Ready\", status=\"true\"})", "legendFormat": "ready" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" } }
+    },
+    {
+      "id": 2,
+      "title": "Nodes NotReady / Under Pressure",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 0 },
+      "description": "Backs the NodeNotReadyOrPressure alert - see observability/alerts/erez-cv-devops-rules.yaml.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "count(kube_node_status_condition{condition=\"Ready\", status=\"true\"} == 0) + count(kube_node_status_condition{condition=~\"MemoryPressure|DiskPressure|PIDPressure\", status=\"true\"} == 1)",
+          "legendFormat": "not-ready-or-pressure"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "Deployments: Desired vs Available Replicas",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 0 },
+      "description": "Backs the ReplicasMismatch alert.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "kube_deployment_spec_replicas{namespace=~\"devops-app.*\"}", "legendFormat": "{{namespace}}/{{deployment}} desired" },
+        { "expr": "kube_deployment_status_replicas_available{namespace=~\"devops-app.*\"}", "legendFormat": "{{namespace}}/{{deployment}} available" }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Node CPU Utilization",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 6 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "1 - avg(rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) by (instance)", "legendFormat": "{{instance}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percentunit", "max": 1, "min": 0 } }
+    },
+    {
+      "id": 5,
+      "title": "Node Memory Utilization",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 6 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)", "legendFormat": "{{instance}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percentunit", "max": 1, "min": 0 } }
+    },
+    {
+      "id": 6,
+      "title": "Node Disk Utilization (root fs)",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 6 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "1 - (node_filesystem_avail_bytes{mountpoint=\"/\"} / node_filesystem_size_bytes{mountpoint=\"/\"})",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percentunit", "max": 1, "min": 0 } }
+    },
+    {
+      "id": 7,
+      "title": "Pod Restarts (this project's namespaces)",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 13 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "A restart spike here, without a matching deploy annotation on the Application Overview dashboard, usually means a crash - not a release.",
+      "targets": [
+        {
+          "expr": "sum(increase(kube_pod_container_status_restarts_total{namespace=~\"devops-app.*|jenkins|observability\"}[15m])) by (namespace, pod)",
+          "legendFormat": "{{namespace}}/{{pod}}"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "CPU Throttling",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 13 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Sustained throttling with headroom in the CPU-usage panel on Application Overview usually means the CPU *limit* (not node capacity) is the bottleneck - see k8s/helm/cv-platform's resources.limits.",
+      "targets": [
+        {
+          "expr": "sum(rate(container_cpu_cfs_throttled_seconds_total{namespace=~\"devops-app.*\"}[5m])) by (namespace, pod)",
+          "legendFormat": "{{namespace}}/{{pod}}"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Pending Pods",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 20 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "sum(kube_pod_status_phase{phase=\"Pending\", namespace=~\"devops-app.*|jenkins|observability\"}) by (namespace)", "legendFormat": "{{namespace}}" }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "PVC Usage",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 20 },
+      "description": "Backs the storage/retention documentation in observability/README.md - watch this alongside Prometheus's own `retention: 15d` / 20Gi PVC and Alertmanager's 2Gi PVC.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes",
+          "legendFormat": "{{namespace}}/{{persistentvolumeclaim}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percentunit", "max": 1, "min": 0 } }
+    }
+  ]
+}

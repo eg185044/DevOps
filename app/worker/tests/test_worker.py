@@ -28,3 +28,13 @@ def test_index_reports_running():
     body = resp.get_json()
     assert body["service"] == "worker"
     assert "message" in body
+
+
+def test_metrics_endpoint_exposes_prometheus_format():
+    c = client()
+    c.get("/")
+    resp = c.get("/metrics")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "worker_http_requests_total" in body
+    assert "worker_app_info" in body

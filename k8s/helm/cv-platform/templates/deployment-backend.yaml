@@ -39,6 +39,12 @@ spec:
           ports:
             - name: http
               containerPort: 5000
+          env:
+            # Feeds backend_app_info{} in app/backend/app.py - the traceability
+            # link from this exact commit/build to the Grafana panel that shows
+            # which version is running (see observability/README.md).
+            - { name: APP_VERSION, value: {{ .Chart.AppVersion | quote }} }
+            - { name: APP_GIT_SHA, value: {{ .Values.backend.tag | quote }} }
           envFrom:
             - configMapRef: { name: {{ include "cv-platform.fullname" . }}-app-config }
             - secretRef: { name: {{ include "cv-platform.fullname" . }}-db-credentials }

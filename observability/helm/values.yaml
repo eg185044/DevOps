@@ -1,0 +1,226 @@
+# Values for the OFFICIAL kube-prometheus-stack Helm chart
+# (repo: https://prometheus-community.github.io/helm-charts,
+# chart: prometheus-community/kube-prometheus-stack). Installed exactly as:
+#
+#   helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+#   helm repo update
+#   helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+#     --version 88.3.0 \
+#     --namespace observability --create-namespace \
+#     -f observability/helm/values.yaml
+#
+# (the exact command, with every flag explained, lives in
+# observability/scripts/install-observability.sh - do not hand-type this).
+#
+# Every key path below was verified against the real chart with
+# `helm show values prometheus-community/kube-prometheus-stack --version
+# 88.3.0` and cross-checked against a real install on a live cluster (see
+# observability/README.md "What was and wasn't run live") - the same
+# discipline that caught real schema mistakes writing jenkins/helm/values.yaml
+# (top-level vs. nested keys don't always match intuition; guessing from
+# memory produces a chart that fails at `helm install`, not at review time).
+#
+# Chart version 88.3.0 is pinned deliberately (never "latest") - re-verify
+# with `helm search repo prometheus-community/kube-prometheus-stack
+# --versions` before a real deploy and update this comment and
+# install-observability.sh together.
+
+## ---------------------------------------------------------------------
+## Prometheus (kube-state-metrics, node-exporter, kubelet/cAdvisor scraping
+## are all enabled by chart default - see kubernetesServiceMonitors: below)
+## ---------------------------------------------------------------------
+prometheus:
+  prometheusSpec:
+    replicas: 1
+    retention: 15d
+    retentionSize: "18GB"   # leaves headroom under a 20Gi PVC for WAL + compaction
+    walCompression: true
+    scrapeInterval: 30s
+    evaluationInterval: 30s
+    externalLabels:
+      cluster: erez-cv-devops
+
+    # Watch ServiceMonitors/PodMonitors/PrometheusRules in ANY namespace,
+    # not just ones carrying this release's own label - the app's
+    # ServiceMonitors live in devops-app/devops-app-dev, Jenkins's in
+    # jenkins, ours in observability. This is the standard, documented
+    # kube-prometheus-stack pattern for "watch everything" (see
+    # observability/README.md "Discovery, labels & cardinality" for the
+    # RBAC/security implications - Prometheus's ClusterRole this grants is
+    # read-only: get/list/watch on Pods/Services/Endpoints, never Secrets,
+    # never write access, never cluster-admin).
+    serviceMonitorSelectorNilUsesHelmValues: false
+    serviceMonitorSelector: {}
+    serviceMonitorNamespaceSelector: {}
+    podMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelector: {}
+    podMonitorNamespaceSelector: {}
+    ruleSelectorNilUsesHelmValues: false
+    ruleSelector: {}
+    ruleNamespaceSelector: {}
+
+    resources:
+      requests: { cpu: "250m", memory: "1Gi" }
+      limits: { cpu: "1", memory: "2Gi" }
+
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: "gp3"   # override at install time for non-EBS clusters (see install-observability.sh)
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 20Gi
+
+    # securityContext/podSecurityContext are already hardened by chart
+    # default (runAsNonRoot, runAsUser 1000, seccompProfile RuntimeDefault) -
+    # left at chart defaults deliberately, not overridden here.
+
+  service:
+    type: ClusterIP   # never LoadBalancer - see "Accessing the UIs" in observability/README.md
+
+  ingress:
+    enabled: false   # same posture as Jenkins: no external exposure by default, port-forward is the documented path
+
+## ---------------------------------------------------------------------
+## Grafana
+## ---------------------------------------------------------------------
+grafana:
+  enabled: true
+
+  # We manage our own admin Secret, never the chart's randomly-generated one.
+  admin:
+    existingSecret: "grafana-admin-credentials"
+    userKey: admin-user
+    passwordKey: admin-password
+
+  # Deliberately NOT persisted: every datasource and dashboard this project
+  # ships is provisioned from files in Git (see sidecar: below and
+  # observability/dashboards/) - a restart reprovisions identically from
+  # code, by design, so there is never a "it only exists because someone
+  # clicked around in the UI" dashboard. See observability/README.md
+  # "Recovery" for what this trade-off means operationally.
+  persistence:
+    enabled: false
+
+  resources:
+    requests: { cpu: "100m", memory: "256Mi" }
+    limits: { cpu: "500m", memory: "512Mi" }
+
+  # Auto-discovers ConfigMaps labeled grafana_dashboard=1 in ANY namespace
+  # (our three dashboards live in observability/dashboards/, applied as
+  # ConfigMaps by install-observability.sh) - this is the "no manual
+  # import" provisioning the final project requires. The Prometheus AND
+  # Alertmanager datasources are provisioned automatically by the chart
+  # itself (sidecar.datasources.enabled, chart default) - no datasource is
+  # ever added by hand either.
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: ALL
+      folder: /tmp/dashboards
+      provider:
+        allowUiUpdates: false   # UI edits to a provisioned dashboard are discarded on next sync - Git is the only source of truth
+    datasources:
+      enabled: true   # chart default; kept explicit. Provisions the Prometheus + Alertmanager datasources automatically.
+
+  ingress:
+    enabled: false   # same posture as Prometheus/Jenkins - port-forward by default, see observability/README.md
+
+  serviceMonitor:
+    enabled: true   # Grafana's own /metrics, scraped like everything else
+
+## ---------------------------------------------------------------------
+## Alertmanager
+## ---------------------------------------------------------------------
+alertmanager:
+  enabled: true
+  alertmanagerSpec:
+    replicas: 1
+    retention: 120h
+    resources:
+      requests: { cpu: "50m", memory: "128Mi" }
+      limits: { cpu: "200m", memory: "256Mi" }
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: "gp3"
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 2Gi
+
+  service:
+    type: ClusterIP
+
+  ingress:
+    enabled: false
+
+  # Safe demo receiver: every alert this project's PrometheusRule can raise
+  # (observability/alerts/*.yaml) routes to the in-cluster echo receiver in
+  # observability/webhook-logger.yaml - a real HTTP delivery, verifiable in
+  # its logs, with zero external dependency and zero secret. The chart's own
+  # default 'null' receiver is kept for its built-in Watchdog/InfoInhibitor
+  # matcher (never touched). See observability/README.md "Wiring a real
+  # notification channel" for how a production deploy layers a real
+  # Slack/email receiver on top via a Secret-backed `_file` field - never a
+  # plaintext webhook URL in this repo.
+  config:
+    global:
+      resolve_timeout: 5m
+    inhibit_rules:
+      - source_matchers: ['severity = critical']
+        target_matchers: ['severity =~ warning|info']
+        equal: ['namespace', 'alertname']
+      - source_matchers: ['severity = warning']
+        target_matchers: ['severity = info']
+        equal: ['namespace', 'alertname']
+      - source_matchers: ['alertname = InfoInhibitor']
+        target_matchers: ['severity = info']
+        equal: ['namespace']
+      - target_matchers: ['alertname = InfoInhibitor']
+    route:
+      group_by: ['namespace', 'alertname']
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      receiver: 'webhook-logger'
+      routes:
+        - receiver: 'null'
+          matchers: ['alertname = "Watchdog"']
+    receivers:
+      - name: 'null'
+      - name: 'webhook-logger'
+        webhook_configs:
+          - url: 'http://alertmanager-webhook-logger.observability.svc.cluster.local:8080/alert'
+            send_resolved: true
+    templates:
+      - '/etc/alertmanager/config/*.tmpl'
+
+## ---------------------------------------------------------------------
+## kube-state-metrics / node-exporter (chart defaults enable both; kept
+## explicit here per the final project's "required components" list)
+## ---------------------------------------------------------------------
+kubeStateMetrics:
+  enabled: true
+
+nodeExporter:
+  enabled: true
+
+## Cluster-level API server / kubelet / controller-manager / scheduler /
+## coreDNS / etcd / kube-proxy scrape configs. On EKS, controller-manager /
+## scheduler / etcd are not operator-reachable (AWS manages the control
+## plane) - kubelet/cAdvisor and kube-state-metrics still cover everything
+## the final project's Kubernetes dashboard needs (node/pod resources,
+## restarts, rollouts). Left at chart defaults; see
+## observability/README.md "What's not scraped on EKS and why".
+kubernetesServiceMonitors:
+  enabled: true
+
+prometheusOperator:
+  enabled: true
+  # Hardened defaults (non-root, no privilege escalation, admission webhook
+  # TLS auto-provisioned by the operator's own bootstrap Job - no
+  # cert-manager dependency) are already chart defaults; not overridden here.

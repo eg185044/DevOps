@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: observability
+  labels:
+    app.kubernetes.io/part-of: erez-cv-devops
+    app.kubernetes.io/managed-by: manual
+    purpose: monitoring

@@ -16,7 +16,70 @@ The final public page presents **Erez Glik's CV** through nginx on EC2 behind an
 
 ---
 
+## Project walkthrough (all 5 missions, in order)
 
+A rolling project - each mission builds directly on the last, nothing gets
+rebuilt from scratch. This is the quick, scannable version; every bullet
+links to the full detail.
+
+- **Mission 1 - the application itself.** Three small services under
+  `app/`: `frontend` (nginx, serves the CV page), `backend` (Flask API -
+  CV data, health, DB, S3, SNS routes), `worker` (background jobs). See
+  "The application itself" above.
+- **Mission 2 - infrastructure as code (`terraform/` + `ansible/`).**
+  Terraform creates the VPC/subnets/EC2/RDS/S3/SNS/NLB; Ansible installs
+  Docker/nginx and deploys the 3 services onto those EC2 instances. Fully
+  documented in `docs/baby-steps-runbook.md` and the "Baby steps" section
+  below.
+- **Mission 3 - Kubernetes (`k8s/`).** The same 3 services, containerized,
+  running as Pods in a cluster instead of 3 separate EC2 instances -
+  namespace, Deployments/Services/Ingress, ConfigMaps/Secrets, least-
+  privilege RBAC/ServiceAccounts, NetworkPolicies, a full Helm chart, and
+  ArgoCD GitOps. Full detail: **[k8s/README.md](k8s/README.md)**.
+- **Mission 4 - Jenkins CI/CD inside Kubernetes (`jenkins/` +
+  `ci-Jenkinsfile` + `cd-Jenkinsfile`).** Jenkins itself runs as a Pod in
+  the same cluster, installed entirely from code (official Helm chart +
+  JCasC - no manual UI setup, ever). Separate CI (lint/test/build/scan/push,
+  immutable tag, never deploys) and CD (takes that exact tag, deploys via
+  Helm, verifies rollout, smoke-tests, prints rollback steps) pipelines,
+  with jobs created as code via a Job DSL seed job. Full detail:
+  **[jenkins/README.md](jenkins/README.md)**.
+- **Mission 5 / Final Project - observability (`observability/`).**
+  Prometheus + Grafana + Alertmanager (kube-prometheus-stack), deployed
+  entirely from Helm values in Git, scraping the application, the cluster,
+  and Jenkins. Three dashboards, six alerts with runbooks, an SLI/SLO for
+  availability and latency, and a CD pipeline stage that checks the app is
+  actually *healthy* (not just *Running*) before calling a deploy
+  successful. Full detail: **[observability/README.md](observability/README.md)**.
+
+**How the pieces run together, step by step:**
+
+1. `terraform apply` (Path A) or a Kubernetes cluster + `helm install`
+   (Path B) creates the infrastructure - see each mission's own README for
+   the exact commands.
+2. `ansible-playbook` (Path A) or `kubectl apply -f k8s/` / `helm upgrade
+   --install` (Path B) gets the 3 application services running.
+3. `./jenkins/scripts/install-jenkins.sh` installs Jenkins-as-code into the
+   `jenkins` namespace, then `./jenkins/scripts/create-jobs.sh` creates the
+   two pipeline jobs from `jenkins/jobs/seed.groovy`.
+4. A `git push` (real deploy: via webhook; here: `pollSCM` fallback, see
+   `jenkins/README.md`) triggers `ci-application`, which lints, tests,
+   builds, scans, and pushes an image with an immutable tag - then
+   auto-triggers `cd-application` for `dev`, which deploys that exact image
+   via `helm upgrade --install` against `k8s/helm/cv-platform`.
+5. `./observability/scripts/install-observability.sh` installs
+   Prometheus/Grafana/Alertmanager into the `observability` namespace,
+   which immediately starts scraping the already-running app, cluster, and
+   Jenkins - no application changes needed for this step.
+6. From here on, every `cd-application` run ends with a live health check
+   against Prometheus (the "Post-Deploy Monitoring Gate") before the
+   pipeline calls itself successful - a broken release fails the build and
+   points at the relevant runbook, not just a green checkmark.
+7. Verify everything with each layer's own `verify-*.sh` script
+   (`k8s/README.md`, `jenkins/scripts/verify-jenkins.sh`,
+   `observability/scripts/verify-observability.sh`), and tear down with
+   each layer's own `uninstall-*.sh` / `terraform destroy` when done, so
+   nothing keeps costing money.
 
 ## Architecture
 
@@ -166,20 +229,44 @@ rollback instructions on failure). CI never deploys; CD never rebuilds an
 image. Full details, architecture diagrams, and the security write-up
 live in **[jenkins/README.md](jenkins/README.md)**.
 
+### Observability: Prometheus, Grafana, Alertmanager (Mission 5 / Final Project)
+
+Continues directly from Mission 4 - nothing about the app, images, K8s
+deployment, or Jenkins pipelines was rebuilt. A dedicated `observability`
+namespace runs the official `kube-prometheus-stack` Helm chart (Prometheus
+Operator, Prometheus, Grafana, Alertmanager, kube-state-metrics,
+node-exporter), scraping the application (custom `/metrics` in
+backend/worker + an nginx-exporter sidecar on frontend), the Kubernetes
+platform, and Jenkins (its own Prometheus plugin). Three Grafana dashboards
+(Application Overview, Kubernetes / Cluster, Jenkins & Delivery) are
+provisioned entirely from JSON files in Git - no manual import, ever - and
+six PrometheusRule alerts (2 application, 2 Kubernetes, 1 Jenkins, 1
+monitoring-of-the-monitoring) route to a safe in-cluster demo receiver.
+`cd-Jenkinsfile` queries Prometheus directly after every deploy (the
+"Post-Deploy Monitoring Gate" stage) to confirm the release is actually
+*healthy*, not just *Running*, before calling it done. Full details,
+architecture diagram, SLI/SLO definitions, and the security write-up live
+in **[observability/README.md](observability/README.md)**.
+
 ### End-to-end flow, in order
 
 1. Code lives in GitHub.
 2. Jenkins (running in-cluster - see `jenkins/`) lints, tests, builds and
    scans it on every push (`ci-Jenkinsfile`), then `cd-Jenkinsfile` deploys
-   the exact image that passed CI.
+   the exact image that passed CI, and finally queries Prometheus to
+   confirm the new release is healthy before declaring success.
 3. Infrastructure gets created either the old way (Terraform + Ansible +
    EC2) or the new way (`kubectl`/Helm/ArgoCD + Kubernetes).
 4. Either way, it is the same 3 containers, and the same external
    RDS/S3/SNS.
 5. A visitor hits the Load Balancer (Path A) or Ingress (Path B) -> nginx
    frontend -> proxies to backend/worker -> CV renders, API calls work.
-6. `terraform destroy` or `kubectl delete namespace devops-app` tears it
-   down when finished, so nothing keeps costing money.
+6. Prometheus scrapes the app, the cluster, and Jenkins continuously;
+   Grafana visualizes it; Alertmanager pages a receiver the moment
+   something breaks a defined SLO.
+7. `terraform destroy` or `kubectl delete namespace devops-app` tears it
+   down when finished, so nothing keeps costing money (each layer also has
+   its own `uninstall-*.sh` - see the bullet walkthrough below).
 
 ---
 
@@ -197,8 +284,9 @@ docs                       Runbook, architecture, mapping, checklist
 scripts                    Windows and controller helper scripts
 k8s                        Kubernetes deployment (Path B): manifests, Helm charts, ArgoCD GitOps
 jenkins                    Jenkins-on-Kubernetes: Helm values, JCasC, RBAC, install/verify scripts
+observability              Prometheus/Grafana/Alertmanager: Helm values, ServiceMonitors, alerts, dashboards, runbooks
 ci-Jenkinsfile             CI pipeline: lint, test, build (kaniko), scan (Trivy), push to ECR
-cd-Jenkinsfile             CD pipeline: helm upgrade to k8s/helm/cv-platform, rollout, smoke test
+cd-Jenkinsfile             CD pipeline: helm upgrade to k8s/helm/cv-platform, rollout, smoke test, post-deploy monitoring gate
 ```
 
 ---

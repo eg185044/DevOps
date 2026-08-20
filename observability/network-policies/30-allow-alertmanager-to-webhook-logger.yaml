@@ -1,0 +1,23 @@
+# The safe demo receiver (observability/webhook-logger.yaml) only accepts
+# connections from Alertmanager itself - see observability/README.md
+# "Wiring a real notification channel" for how this differs once a real
+# Slack/email receiver is layered on top.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-alertmanager-to-webhook-logger
+  namespace: observability
+spec:
+  podSelector:
+    matchLabels:
+      app: alertmanager-webhook-logger
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: alertmanager
+      ports:
+        - protocol: TCP
+          port: 8080

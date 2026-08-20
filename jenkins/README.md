@@ -7,16 +7,33 @@ through the Jenkins UI. This document is the Mission 4 deliverable README;
 [architecture-diagram.md](architecture-diagram.md) has the Mermaid
 diagrams referenced throughout.
 
-> **What was and wasn't run live.** This project was built and validated
-> as code in an environment with no live EKS cluster attached: manifests
-> were reviewed by hand, `helm lint`/`helm template` were run against
-> `k8s/helm/cv-platform` (Mission 3's chart, unchanged), and every
-> Jenkinsfile/Groovy/YAML file here was proofread for consistency (env
-> var names, RBAC resource names, namespace names all cross-checked
-> against each other). It was **not** deployed to a real cluster in this
-> session, so [evidence/](evidence/) is a checklist, not filled-in
-> screenshots - see that folder's README for exactly what to capture and
-> how, using [scripts/verify-jenkins.sh](scripts/verify-jenkins.sh).
+> **What was and wasn't run live.** Every file in this directory was
+> deployed for real against a live cluster (a local Docker Desktop
+> Kubernetes cluster, standing in for EKS - see "Architecture and
+> environment choice" below for why that substitution is valid) and fixed
+> against real errors, not just reviewed by hand:
+> - The official Helm chart install genuinely failed twice before
+>   succeeding - `serviceAccount`/`persistence`/`rbac` turned out to be
+>   **top-level** chart keys, not nested under `controller:` as first
+>   guessed, and the chart's built-in config-reload sidecar needed RBAC
+>   this project deliberately withholds, so it's disabled instead (see
+>   [helm/values.yaml](helm/values.yaml)'s comments at each of those keys).
+> - The controller reached `Ready`, `seed-job` ran for real and created
+>   both `ci-application` and `cd-application` via Job DSL, and the
+>   Prometheus plugin's `/prometheus` endpoint was confirmed reachable
+>   anonymously (with `perBuildMetrics: true` added after confirming the
+>   default metrics carry no per-job label at all).
+> - **Not exercised live:** an actual `ci-application` run through kaniko
+>   pushing to a real ECR registry (no AWS credentials were available in
+>   this environment) and an actual Trivy scan against a pushed image -
+>   the CI stage logic was validated by running its exact validation
+>   commands (YAML/JSON checks, `promtool check rules`) directly instead.
+>   [evidence/](evidence/) still needs the registry-dependent screenshots
+>   filled in against a real AWS account - see that folder's README.
+
+See [observability/README.md](../observability/README.md)'s own callout
+for what the monitoring layer added on top of this (also run live,
+including real scrape targets and real dashboard data).
 
 ## Architecture and environment choice
 

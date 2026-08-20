@@ -1,0 +1,22 @@
+# Prometheus itself delivers firing alerts to Alertmanager over Alertmanager's
+# API port - without this, PrometheusRule alerts would evaluate correctly
+# but never actually reach Alertmanager's routing/receivers.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-to-alertmanager
+  namespace: observability
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: alertmanager
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: 9093

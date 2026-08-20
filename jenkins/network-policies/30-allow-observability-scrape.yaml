@@ -1,0 +1,32 @@
+# Allows the observability namespace's Prometheus Pod to reach the
+# controller's existing HTTP port (8080) - and ONLY that port - to scrape
+# GET /prometheus (see jenkins/jcasc/jenkins.yaml's prometheusConfiguration
+# and observability/service-monitors/jenkins-servicemonitor.yaml).
+#
+# This is deliberately namespace-scoped, not path-scoped - NetworkPolicy
+# operates at L3/L4, so this also permits the observability namespace to
+# reach the full Jenkins UI/API network-wise. What actually stops that from
+# mattering is the OTHER layer: every path except /prometheus still requires
+# a login (authorizationStrategy.loggedInUsersCanDoAnything.allowAnonymousRead:
+# false), and nothing in the observability namespace has - or needs -
+# credentials. See observability/README.md "Discovery, labels & cardinality"
+# for the full write-up of this two-layer (network + application) design.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-observability-scrape
+  namespace: jenkins
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: "jenkins-controller"
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+      ports:
+        - protocol: TCP
+          port: 8080

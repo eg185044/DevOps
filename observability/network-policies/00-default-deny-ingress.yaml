@@ -1,0 +1,19 @@
+# Same baseline pattern as k8s/network-policies/00-default-deny-ingress.yaml
+# and jenkins/network-policies/00-default-deny-ingress.yaml: deny all
+# ingress by default, then explicitly allow only what's needed (the other
+# files in this directory). Egress is deliberately unrestricted, matching
+# this project's established pattern everywhere else - Prometheus needs to
+# reach scrape targets in devops-app/devops-app-dev/jenkins, none of which
+# are known ahead of time as a fixed CIDR/IP list, and egress control at
+# the Kubernetes NetworkPolicy layer for a monitoring system's fan-out
+# scrape traffic has poor cost/benefit here - see observability/README.md
+# "Discovery, labels & cardinality" for the full trade-off discussion.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: observability
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress

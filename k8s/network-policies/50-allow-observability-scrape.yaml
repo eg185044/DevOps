@@ -1,0 +1,30 @@
+# Raw-manifest counterpart of k8s/helm/cv-platform/templates/network-
+# policies.yaml's identically-named rule - see that file for the full
+# rationale. Lets the observability namespace's Prometheus Pod scrape
+# backend/worker's app port and frontend's dedicated exporter port 9113.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-observability-scrape
+  namespace: devops-app
+  labels:
+    app.kubernetes.io/part-of: erez-cv-platform
+spec:
+  podSelector:
+    matchExpressions:
+      - key: tier
+        operator: In
+        values: ["backend", "worker", "frontend"]
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+      ports:
+        - protocol: TCP
+          port: 5000
+        - protocol: TCP
+          port: 5002
+        - protocol: TCP
+          port: 9113

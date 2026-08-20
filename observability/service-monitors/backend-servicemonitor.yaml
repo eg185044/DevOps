@@ -1,0 +1,34 @@
+# Targets the Helm-chart-deployed backend (k8s/helm/cv-platform) - the flavor
+# cd-Jenkinsfile actually deploys. If you instead run the raw-manifest path
+# (`kubectl apply -f k8s/`, which labels Pods `app: backend, tier: backend`
+# rather than `app.kubernetes.io/component: backend`), add an analogous
+# ServiceMonitor selecting on those labels instead - see
+# observability/README.md "Discovery, labels & cardinality" for why this
+# project only ships the Helm-chart flavor by default.
+#
+# Lives in `observability`, NOT `devops-app` - Prometheus is configured to
+# watch every namespace (see observability/helm/values.yaml
+# serviceMonitorNamespaceSelector: {}), so the ServiceMonitor object itself
+# doesn't need to be co-located with the Service it targets. namespaceSelector
+# below is what actually tells it where to look for matching Services.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: backend
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: erez-cv-devops
+    # No "release: <helm-release>" label needed - Prometheus is configured
+    # (observability/helm/values.yaml) to select ALL ServiceMonitors
+    # regardless of label, so this is purely descriptive.
+spec:
+  namespaceSelector:
+    matchNames: ["devops-app", "devops-app-dev"]
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: backend
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s

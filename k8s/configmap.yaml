@@ -38,8 +38,13 @@ data:
         root /usr/share/nginx/html;
         index index.html;
 
-        access_log /var/log/nginx/cv-platform-access.log;
-        error_log  /var/log/nginx/cv-platform-error.log;
+        # Container-native logging: stdout/stderr, collected via `kubectl
+        # logs` - never a named file under /var/log/nginx, which would need
+        # its own writable volume under readOnlyRootFilesystem: true (this
+        # crash-looped in real testing before this fix - see k8s/README.md
+        # "What was and wasn't run live").
+        access_log /dev/stdout;
+        error_log  /dev/stderr;
 
         location / {
             try_files $uri $uri/ /index.html;
@@ -48,6 +53,16 @@ data:
         location = /health {
             add_header Content-Type text/plain;
             return 200 "frontend nginx ok\n";
+        }
+
+        # Scraped by the nginx-prometheus-exporter sidecar in the SAME Pod
+        # (see deployment-frontend.yaml) over the shared loopback interface
+        # only - "allow 127.0.0.1" means this never leaves the Pod, and it is
+        # not proxied by Ingress either way (only "/" ever is).
+        location = /nginx_status {
+            stub_status on;
+            allow 127.0.0.1;
+            deny all;
         }
 
         # backend-svc / worker-svc resolve via cluster DNS: <svc>.<namespace>.svc.cluster.local

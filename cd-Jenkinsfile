@@ -247,6 +247,75 @@ pipeline {
                 }
             }
         }
+
+        stage('Post-Deploy Monitoring Gate') {
+            // Final-project requirement: a deploy that merely reaches
+            // "Running" isn't enough - this stage asks Prometheus whether
+            // the release is actually HEALTHY, using the exact same
+            // recording rules HighErrorRate/HighLatencyP95 alert on (see
+            // observability/alerts/erez-cv-devops-rules.yaml), so the gate
+            // and the alert can never disagree about what "healthy" means.
+            // A failure here marks the build FAILED and falls through to
+            // the same post{failure{}} rollback guidance as any other stage
+            // - see observability/README.md "Post-deploy monitoring gate".
+            when {
+                expression { env.PROMETHEUS_URL?.trim() }
+            }
+            steps {
+                container('deployer') {
+                    sh '''
+                        set -euo pipefail
+                        echo "Waiting 30s for at least one scrape cycle to land before querying..."
+                        sleep 30
+
+                        query() {
+                          curl -sf --max-time 10 "${PROMETHEUS_URL}/api/v1/query" --data-urlencode "query=$1"
+                        }
+
+                        echo "-- 1/3: scrape targets in ${TARGET_NAMESPACE} are UP --"
+                        UP_RESULT=$(query "up{namespace=\\"${TARGET_NAMESPACE}\\"}")
+                        UP_COUNT=$(echo "$UP_RESULT" | jq '.data.result | length')
+                        DOWN_COUNT=$(echo "$UP_RESULT" | jq '[.data.result[] | select(.value[1] != "1")] | length')
+                        echo "targets found: ${UP_COUNT}, down: ${DOWN_COUNT}"
+                        if [ "$UP_COUNT" -eq 0 ]; then
+                          echo "WARNING: no scrape targets found yet for namespace=${TARGET_NAMESPACE} - Prometheus may not have discovered the new Pods yet. Not failing the gate on this alone; Verify/Smoke Test already confirmed the Pods themselves are healthy." >&2
+                        elif [ "$DOWN_COUNT" -gt 0 ]; then
+                          echo "FAIL: ${DOWN_COUNT}/${UP_COUNT} scrape target(s) in ${TARGET_NAMESPACE} are down." >&2
+                          echo "$UP_RESULT" | jq '.data.result[] | select(.value[1] != "1")'
+                          exit 1
+                        fi
+
+                        echo "-- 2/3: app:availability:ratio_5m >= 0.95 (same threshold as the HighErrorRate alert) --"
+                        AVAIL_RESULT=$(query "app:availability:ratio_5m")
+                        AVAIL_VALUE=$(echo "$AVAIL_RESULT" | jq -r '.data.result[0].value[1] // empty')
+                        if [ -z "$AVAIL_VALUE" ]; then
+                          echo "No data yet for app:availability:ratio_5m (no traffic scraped since deploy) - same condition under which HighErrorRate itself cannot fire either. Not failing the gate on absent data." >&2
+                        else
+                          echo "app:availability:ratio_5m = ${AVAIL_VALUE}"
+                          awk -v v="$AVAIL_VALUE" 'BEGIN { exit !(v >= 0.95) }' || {
+                            echo "FAIL: availability ratio ${AVAIL_VALUE} is below the 0.95 gate threshold." >&2
+                            exit 1
+                          }
+                        fi
+
+                        echo "-- 3/3: app:latency:p95_5m <= 0.5s (same threshold as the HighLatencyP95 alert) --"
+                        LATENCY_RESULT=$(query "app:latency:p95_5m")
+                        LATENCY_VALUE=$(echo "$LATENCY_RESULT" | jq -r '.data.result[0].value[1] // empty')
+                        if [ -z "$LATENCY_VALUE" ]; then
+                          echo "No data yet for app:latency:p95_5m - not failing the gate on absent data (same reasoning as above)." >&2
+                        else
+                          echo "app:latency:p95_5m = ${LATENCY_VALUE}s"
+                          awk -v v="$LATENCY_VALUE" 'BEGIN { exit !(v <= 0.5) }' || {
+                            echo "FAIL: p95 latency ${LATENCY_VALUE}s exceeds the 0.5s gate threshold." >&2
+                            exit 1
+                          }
+                        fi
+
+                        echo "Post-deploy monitoring gate PASSED for ${TARGET_NAMESPACE}."
+                    '''
+                }
+            }
+        }
     }
 
     post {

@@ -1,0 +1,121 @@
+{
+  "title": "Jenkins & Delivery",
+  "uid": "erez-cv-jenkins-delivery",
+  "tags": ["erez-cv-devops", "jenkins", "delivery"],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "refresh": "30s",
+  "time": { "from": "now-24h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Queue Length",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "jenkins_queue_size_value", "legendFormat": "queued" }]
+    },
+    {
+      "id": 2,
+      "title": "Stuck Queue Items",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 0 },
+      "description": "Backs the JenkinsQueueStuck alert - see observability/alerts/erez-cv-devops-rules.yaml.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "jenkins_queue_stuck_value", "legendFormat": "stuck" }],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "Executors: Busy vs Total",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 0 },
+      "description": "Dynamic agent Pods only (see jenkins/jcasc/jenkins.yaml Kubernetes cloud) - a sustained gap between these two lines usually means agent Pods are failing to schedule (RBAC, node capacity, or image pull), not that Jenkins itself is unhealthy.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "jenkins_executor_count_value", "legendFormat": "total" },
+        { "expr": "jenkins_executor_in_use_value", "legendFormat": "busy" }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Build Outcomes, All Jobs (rate, 1h window)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "description": "jenkins_runs_{success,failure}_total are global counters (not per-job) as exposed by this project's pinned Prometheus plugin version - confirmed against a real controller. See the per-job health-score panel for job-level breakdown instead.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "rate(jenkins_runs_success_total[1h])", "legendFormat": "success" },
+        { "expr": "rate(jenkins_runs_failure_total[1h])", "legendFormat": "failed" }
+      ],
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" } } }
+    },
+    {
+      "id": 5,
+      "title": "Last Build Duration by Job",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "description": "Per-job breakdown requires JCasC's prometheusConfiguration.perBuildMetrics: true (see jenkins/jcasc/jenkins.yaml) - without it, every default_jenkins_builds_* metric carries no jenkins_job label at all (also confirmed live).",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "default_jenkins_builds_last_build_duration_milliseconds{jenkins_job=~\".+\"} / 1000", "legendFormat": "{{jenkins_job}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "id": 6,
+      "title": "Per-Job Health Score",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 14 },
+      "description": "Jenkins's own built-in 0-100 health score per job (recent build stability) - \"is the supply chain healthy, and is anything blocking it?\" answered per-job rather than only in aggregate.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "default_jenkins_builds_health_score{jenkins_job=~\".+\"}", "legendFormat": "{{jenkins_job}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent", "max": 100, "min": 0 } }
+    },
+    {
+      "id": 7,
+      "title": "Time Since Last Successful cd-application Run",
+      "type": "stat",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 14 },
+      "description": "The final project's own worked example: from this panel you can tell whether the last GREEN deploy was minutes or days ago, without opening Jenkins at all. Empty/no-data until cd-application has completed at least one successful build.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "(time() - (default_jenkins_builds_last_build_start_time_milliseconds{jenkins_job=\"cd-application\"} / 1000)) and (default_jenkins_builds_last_build_result_ordinal{jenkins_job=\"cd-application\"} == 0)",
+          "legendFormat": "seconds since last success"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "id": 8,
+      "title": "Controller JVM Heap Usage",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 21 },
+      "description": "The controller never runs a build itself (numExecutors: 0) - a heap climb here tracks purely with job/queue/plugin load, not build workload. Single controller Pod, so no instance filter is needed to disambiguate.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "jvm_memory_bytes_used{area=\"heap\"}", "legendFormat": "used" },
+        { "expr": "jvm_memory_bytes_max{area=\"heap\"}", "legendFormat": "max" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "bytes" } }
+    },
+    {
+      "id": 9,
+      "title": "Online Agent Nodes",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 21 },
+      "description": "Dynamic ci-agent/cd-agent Pods only exist for the lifetime of one build (podRetention: never, see jenkins/jcasc/jenkins.yaml) - a nonzero, non-transient value here for more than a few minutes means an agent Pod failed to clean up.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "jenkins_node_online_value - 1", "legendFormat": "online agents (controller excluded)" }]
+    }
+  ]
+}

@@ -14,3 +14,9 @@ spec:
     - name: http
       port: 80
       targetPort: http
+    # Scraped only by Prometheus (observability namespace) via
+    # network-policies/50-allow-observability-scrape.yaml - never exposed
+    # through the Ingress, which only ever forwards to the "http" port above.
+    - name: metrics
+      port: 9113
+      targetPort: metrics

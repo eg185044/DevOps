@@ -44,6 +44,8 @@ spec:
           env:
             - name: WORKER_PORT
               value: "5002"
+            - { name: APP_VERSION, value: "1.0.0" }
+            - { name: APP_GIT_SHA, value: "REPLACE_ME_GIT_SHA" }
           envFrom:
             - configMapRef: { name: app-config }
           securityContext:

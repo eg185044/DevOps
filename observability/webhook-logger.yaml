@@ -1,0 +1,77 @@
+# A minimal, safe-by-construction Alertmanager receiver for the demo: it
+# accepts any HTTP request, logs it, and echoes 200 - nothing external,
+# nothing that pages a real human, no credentials of any kind. This is what
+# lets Alertmanager's routing actually be demonstrated end-to-end (a real
+# HTTP POST is delivered) instead of just proving "an alert exists" via the
+# default 'null' receiver, which delivers nothing anywhere.
+#
+# For real notifications (Slack/email/PagerDuty), wire an ADDITIONAL
+# receiver in observability/helm/values.yaml's alertmanager.config using a
+# `..._configs: [{ api_url_file: /etc/alertmanager/secrets/... }]` pointing
+# at a pre-created Secret (never a plaintext URL in this file) - see
+# observability/README.md "Wiring a real notification channel".
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alertmanager-webhook-logger
+  namespace: observability
+  labels: { app: alertmanager-webhook-logger, tier: monitoring-demo-receiver }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: alertmanager-webhook-logger }
+  template:
+    metadata:
+      labels: { app: alertmanager-webhook-logger, tier: monitoring-demo-receiver }
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: echo
+          image: mendhak/http-https-echo:31
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - { name: HTTP_PORT, value: "8080" }
+            - { name: LOG_IGNORE_PATH, value: "/health" }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: "10m", memory: "32Mi" }
+            limits: { cpu: "100m", memory: "64Mi" }
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alertmanager-webhook-logger
+  namespace: observability
+  labels: { app: alertmanager-webhook-logger }
+spec:
+  type: ClusterIP
+  selector: { app: alertmanager-webhook-logger }
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

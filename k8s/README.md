@@ -24,6 +24,29 @@ baby-step guide to running this entire stack on a free local `kind`
 cluster and producing every screenshot the assignments ask for, with no
 AWS account needed.
 
+Two layers now build directly on top of this one - see
+[../jenkins/README.md](../jenkins/README.md) (Jenkins CI/CD, Mission 4) and
+[../observability/README.md](../observability/README.md) (Prometheus/
+Grafana/Alertmanager, Mission 5 / Final Project).
+
+> **What was and wasn't run live.** This chart was deployed for real this
+> session (locally, standing in for EKS - see `jenkins/README.md`'s
+> equivalent note for why that substitution is valid), which surfaced one
+> genuine, pre-existing bug: frontend's nginx config wrote access/error
+> logs to named files under `/var/log/nginx/`, which crash-loops under
+> `readOnlyRootFilesystem: true` with no writable volume mounted there -
+> fixed by switching to `/dev/stdout` / `/dev/stderr` (see
+> `configmap.yaml`'s comment at those two lines), the standard
+> container-native logging pattern. With that fixed, `backend`, `frontend`
+> (2/2 including the nginx-exporter sidecar), `worker`, and `redis-cache`
+> all reached `Running`/`Ready`, and this project's NetworkPolicies applied
+> without error. **Not exercised live:** a real AWS RDS/S3/SNS connection
+> (the `/db/*`, `/s3/*`, `/sns/*` routes need real AWS resources this
+> environment doesn't have) and IRSA itself (no EKS Pod Identity webhook
+> on a local cluster) - both were validated by code review and by
+> confirming the app doesn't crash at *boot* without them (only the
+> specific routes that need them would fail, lazily, on demand).
+
 ## What runs where
 
 | Service | In-cluster? | Exposed how |

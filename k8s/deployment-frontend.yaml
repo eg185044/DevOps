@@ -84,6 +84,32 @@ spec:
             # by design (emptyDir) - never a source of truth, only a speed-up.
             - name: request-cache
               mountPath: /tmp/cache
+        # nginx has no built-in Prometheus format - this sidecar scrapes the
+        # stub_status page over loopback (see configmap.yaml's /nginx_status
+        # location) and re-exposes it as /metrics on its own port 9113,
+        # scraped by observability/service-monitors/frontend-servicemonitor.yaml.
+        # Pinned, non-root, no capabilities - never talks to the internet.
+        - name: nginx-exporter
+          image: nginx/nginx-prometheus-exporter:1.3.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - "-nginx.scrape-uri=http://127.0.0.1:8080/nginx_status"
+          ports:
+            - name: metrics
+              containerPort: 9113
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 101
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: "20m", memory: "32Mi" }
+            limits: { cpu: "100m", memory: "64Mi" }
+          readinessProbe:
+            httpGet: { path: /metrics, port: metrics }
+            initialDelaySeconds: 5
+            periodSeconds: 10
       volumes:
         - name: nginx-conf
           configMap:

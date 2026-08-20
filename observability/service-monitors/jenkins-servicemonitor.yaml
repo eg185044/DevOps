@@ -1,0 +1,24 @@
+# Scrapes the Prometheus plugin's /prometheus path on the jenkins-controller
+# Service's existing HTTP port - no extra Service, no extra port. See
+# jenkins/jcasc/jenkins.yaml's `unclassified.prometheusConfiguration` for why
+# this one path is reachable without a login, and
+# jenkins/network-policies/30-allow-observability-scrape.yaml for the
+# network-level restriction that scopes who can even reach it.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: jenkins
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: erez-cv-devops
+spec:
+  namespaceSelector:
+    matchNames: ["jenkins"]
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: jenkins-controller
+  endpoints:
+    - port: http
+      path: /prometheus
+      interval: 30s
+      scrapeTimeout: 10s

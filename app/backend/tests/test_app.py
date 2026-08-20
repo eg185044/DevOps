@@ -46,3 +46,16 @@ def test_sns_publish_without_topic_configured_is_skipped_not_crashed():
     resp = client().get("/sns/publish")
     assert resp.status_code == 400
     assert resp.get_json()["status"] == "skipped"
+
+
+def test_metrics_endpoint_exposes_prometheus_format():
+    c = client()
+    c.get("/cv")  # exercise the request-count/latency/business-metric instrumentation once
+    resp = c.get("/metrics")
+    assert resp.status_code == 200
+    assert resp.mimetype == "text/plain"
+    body = resp.get_data(as_text=True)
+    assert "backend_http_requests_total" in body
+    assert "backend_http_request_duration_seconds" in body
+    assert "backend_cv_views_total" in body
+    assert "backend_app_info" in body

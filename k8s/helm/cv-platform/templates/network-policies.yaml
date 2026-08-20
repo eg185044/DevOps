@@ -73,6 +73,40 @@ spec:
       ports:
         - protocol: TCP
           port: 5002
+---
+# Lets the observability namespace's Prometheus Pod scrape backend/worker's
+# app port (they serve /metrics on the same port as the rest of their API -
+# see app/backend/app.py, app/worker/worker.py) and frontend's DEDICATED
+# metrics port 9113 (the nginx-prometheus-exporter sidecar - never nginx's
+# own port 8080, so this can never be used to reach the site itself).
+# See observability/README.md "Discovery, labels & cardinality" for why
+# this is namespace-scoped rather than a narrower per-Pod rule.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "cv-platform.fullname" . }}-allow-observability-scrape
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "cv-platform.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: In
+        values: ["backend", "worker", "frontend"]
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+      ports:
+        - protocol: TCP
+          port: 5000
+        - protocol: TCP
+          port: 5002
+        - protocol: TCP
+          port: 9113
 {{- if .Values.redis.enabled }}
 ---
 apiVersion: networking.k8s.io/v1

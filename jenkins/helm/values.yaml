@@ -95,6 +95,7 @@ controller:
     - "ws-cleanup:0.49"
     - "build-timeout:1.41"
     - "ansicolor:542.v03d235fee02d"
+    - "prometheus:860.v532442b_44e9a_"
 
   # Trusted Groovy init script (runs unsandboxed at controller startup,
   # unlike JCasC) - disables Job DSL's "approve every script change"
@@ -166,6 +167,15 @@ controller:
       value: "k8s/helm/cv-platform"
     - name: HELM_RELEASE_NAME
       value: "cv-platform"
+    - name: PROMETHEUS_URL
+      # Set once observability/ is installed (see observability/scripts/
+      # install-observability.sh) - the fixed prometheus-operated Service
+      # name the Prometheus Operator itself always creates. Left non-empty
+      # here since this project's documented install order is Mission 3 ->
+      # Mission 4 -> Mission 5, i.e. observability exists by the time this
+      # chart is normally installed/upgraded; set to "" to explicitly
+      # disable the CD gate on a cluster without observability/.
+      value: "http://prometheus-operated.observability.svc.cluster.local:9090"
     - name: JENKINS_URL
       # Cosmetic only (build-badge/email links). Matches the default
       # port-forward access path; update by hand if you turn ingress.enabled

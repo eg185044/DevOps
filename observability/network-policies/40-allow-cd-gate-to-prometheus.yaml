@@ -1,0 +1,25 @@
+# Lets cd-Jenkinsfile's "Post-Deploy Monitoring Gate" stage (running on a
+# cd-agent Pod in the `jenkins` namespace, see jenkins/jcasc/jenkins.yaml)
+# query Prometheus's HTTP API after every deploy to confirm targets are UP
+# and error-rate/latency haven't regressed, before declaring the release
+# healthy. No other namespace is granted this - see
+# observability/README.md "Post-deploy monitoring gate".
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-cd-gate-to-prometheus
+  namespace: observability
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: prometheus
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: jenkins
+      ports:
+        - protocol: TCP
+          port: 9090

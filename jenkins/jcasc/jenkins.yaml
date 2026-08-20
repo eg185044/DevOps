@@ -220,6 +220,17 @@ jenkins:
             value: "${HELM_CHART_PATH:-k8s/helm/cv-platform}"
           - key: "HELM_RELEASE_NAME"
             value: "${HELM_RELEASE_NAME:-cv-platform}"
+          - key: "PROMETHEUS_URL"
+            # prometheus-operated is a FIXED name the Prometheus Operator
+            # itself creates (not derived from the Helm release name), so
+            # this never drifts if observability/helm/values.yaml's release
+            # name changes. Empty by default so cd-Jenkinsfile's "Post-
+            # Deploy Monitoring Gate" stage skips itself cleanly on a
+            # cluster where observability/ hasn't been installed yet - see
+            # observability/scripts/install-observability.sh, which is what
+            # actually flips this on (via --set-string on this same Jenkins
+            # Helm release, documented there).
+            value: "${PROMETHEUS_URL:-}"
 
 # Job creation as code: this is the ONE job JCasC defines directly. It is
 # intentionally tiny - all it does is check out this repository and hand
@@ -274,3 +285,22 @@ unclassified:
     # Cosmetic only (used in email links/build badges); the real access
     # path is documented in jenkins/README.md ("Accessing the Jenkins UI").
     url: "${JENKINS_URL:-http://localhost:8080/}"
+  prometheusConfiguration:
+    # Exposes GET /prometheus on the controller's existing HTTP port without
+    # requiring a login - the ONE deliberate exception to
+    # authorizationStrategy.loggedInUsersCanDoAnything.allowAnonymousRead:
+    # false above. Scoped two ways, not one: (a) only this single path is
+    # unauthenticated, every other Jenkins URL still requires login; (b)
+    # observability/network-policies/ only allows the observability
+    # namespace's Prometheus Pod to reach jenkins-controller:8080 in the
+    # first place - see observability/README.md "Discovery, labels &
+    # cardinality" for the full trade-off writeup and the alternative
+    # (a scrape-scoped API token) this project chose not to add.
+    useAuthenticatedEndpoint: false
+    path: "prometheus"
+    # Without this, jenkins_runs_*_total / default_jenkins_builds_* carry
+    # NO per-job label at all (confirmed against a real controller - see
+    # observability/README.md "What was and wasn't run live") - useless for
+    # "which job is failing" or "time since cd-application's last success",
+    # both of which the Jenkins & Delivery dashboard needs.
+    perBuildMetrics: true

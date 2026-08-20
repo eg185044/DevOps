@@ -31,8 +31,11 @@ data:
         root /usr/share/nginx/html;
         index index.html;
 
-        access_log /var/log/nginx/cv-platform-access.log;
-        error_log  /var/log/nginx/cv-platform-error.log;
+        # Container-native logging: stdout/stderr - see k8s/configmap.yaml
+        # for the full rationale (this crash-looped under
+        # readOnlyRootFilesystem: true before this fix).
+        access_log /dev/stdout;
+        error_log  /dev/stderr;
 
         location / {
             try_files $uri $uri/ /index.html;
@@ -41,6 +44,14 @@ data:
         location = /health {
             add_header Content-Type text/plain;
             return 200 "frontend nginx ok\n";
+        }
+
+        # Scraped by the nginx-prometheus-exporter sidecar in the SAME Pod
+        # over the shared loopback interface only.
+        location = /nginx_status {
+            stub_status on;
+            allow 127.0.0.1;
+            deny all;
         }
 
         location /api/ {

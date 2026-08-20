@@ -1,0 +1,170 @@
+{
+  "title": "Application Overview",
+  "uid": "erez-cv-application-overview",
+  "tags": ["erez-cv-devops", "application"],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "refresh": "30s",
+  "time": { "from": "now-3h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "namespace",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "query": "label_values(backend_app_info, release)",
+        "refresh": 2,
+        "current": { "text": "production", "value": "production" }
+      }
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "name": "Deploys",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "enable": true,
+        "expr": "changes(backend_app_info{release=~\"$namespace\"}[1m]) > 0",
+        "iconColor": "blue",
+        "titleFormat": "Deploy: git_sha={{git_sha}}"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Availability (SLO >= 99%)",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "app:availability:ratio_5m", "legendFormat": "availability" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 0.95 },
+              { "color": "green", "value": 0.99 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "p95 Latency (SLO <= 500ms)",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "app:latency:p95_5m", "legendFormat": "p95" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.5 },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "Running Version (git_sha / release)",
+      "type": "table",
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "The commit->build->image->Pod traceability chain, made visible: this table's git_sha column is exactly the IMAGE_TAG ci-application produced and cd-Jenkinsfile deployed - see observability/README.md \"From one commit to this panel\".",
+      "targets": [
+        { "expr": "backend_app_info", "format": "table", "instant": true, "legendFormat": "backend" },
+        { "expr": "worker_app_info", "format": "table", "instant": true, "legendFormat": "worker" }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Request Rate by Endpoint",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "sum(rate(backend_http_requests_total[5m])) by (endpoint)", "legendFormat": "{{endpoint}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps" } }
+    },
+    {
+      "id": 5,
+      "title": "5xx Error Rate by Endpoint",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "sum(rate(backend_http_request_errors_total[5m])) by (endpoint)", "legendFormat": "{{endpoint}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps", "color": { "fixedColor": "red", "mode": "fixed" } } }
+    },
+    {
+      "id": 6,
+      "title": "Latency Percentiles (p50 / p95 / p99)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum(rate(backend_http_request_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p50" },
+        { "expr": "histogram_quantile(0.95, sum(rate(backend_http_request_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p95" },
+        { "expr": "histogram_quantile(0.99, sum(rate(backend_http_request_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p99" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "id": 7,
+      "title": "Frontend (nginx) Request Rate + Non-2xx",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "nginx-prometheus-exporter sidecar metrics - the edge-layer view, distinct from the app-layer metrics above.",
+      "targets": [
+        { "expr": "sum(rate(nginx_http_requests_total[5m]))", "legendFormat": "requests/s" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps" } }
+    },
+    {
+      "id": 8,
+      "title": "CPU Usage by Pod",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 22 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=~\"devops-app.*\", container=~\"backend|frontend|worker\"}[5m])) by (pod)", "legendFormat": "{{pod}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" } }
+    },
+    {
+      "id": 9,
+      "title": "Memory Usage by Pod",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 22 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "sum(container_memory_working_set_bytes{namespace=~\"devops-app.*\", container=~\"backend|frontend|worker\"}) by (pod)", "legendFormat": "{{pod}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "bytes" } }
+    },
+    {
+      "id": 10,
+      "title": "Business Metric: CV Views (rate)",
+      "type": "stat",
+      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 22 },
+      "description": "The one business metric this project instruments (see app/backend/app.py CV_VIEWS) - how often the CV this whole platform exists to serve is actually being viewed.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "sum(rate(backend_cv_views_total[15m]))", "legendFormat": "views/s" }],
+      "fieldConfig": { "defaults": { "unit": "cps" } }
+    }
+  ]
+}

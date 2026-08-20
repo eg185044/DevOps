@@ -1,0 +1,21 @@
+# Targets the nginx-prometheus-exporter sidecar's own port (9113), not the
+# nginx "http" port itself - nginx has no native Prometheus format, see
+# k8s/helm/cv-platform/templates/deployment-frontend.yaml for the sidecar.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: frontend
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: erez-cv-devops
+spec:
+  namespaceSelector:
+    matchNames: ["devops-app", "devops-app-dev"]
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: frontend
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s

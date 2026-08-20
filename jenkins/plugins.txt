@@ -69,3 +69,10 @@ timestamper:1.30
 ws-cleanup:0.49
 build-timeout:1.41
 ansicolor:542.v03d235fee02d
+
+# --- Observability: exposes controller/JVM/queue/executor/build metrics at
+# /prometheus on the controller's existing HTTP port (no extra Service, no
+# extra port) - scraped by observability/service-monitors/jenkins-servicemonitor.yaml.
+# Version re-resolved together with the rest of this file (same command as
+# the file header describes) - confirmed mutually compatible, not guessed.
+prometheus:860.v532442b_44e9a_

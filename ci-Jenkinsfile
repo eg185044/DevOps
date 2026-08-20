@@ -62,6 +62,77 @@ pipeline {
             }
         }
 
+        stage('Observability Validation') {
+            // Final-project requirement: CI validates PrometheusRule /
+            // ServiceMonitor / Grafana dashboard files - it never deploys
+            // them (that happens via observability/scripts/install-
+            // observability.sh, run by a human or a future dedicated
+            // pipeline, deliberately NOT this one - see
+            // observability/README.md "Observability as Code").
+            steps {
+                container('tools') {
+                    sh '''
+                        set -euo pipefail
+                        export HOME=/tmp
+
+                        echo "== YAML syntax: ServiceMonitors, PrometheusRule, NetworkPolicies =="
+                        pip install --quiet --user pyyaml==6.0.2
+                        python3 -c "
+import glob, sys, yaml
+files = sorted(glob.glob('observability/**/*.yaml', recursive=True))
+assert files, 'no observability YAML files found'
+bad = 0
+for f in files:
+    try:
+        list(yaml.safe_load_all(open(f, encoding='utf-8')))
+    except Exception as e:
+        print(f'FAIL {f}: {e}'); bad += 1
+print(f'{len(files) - bad}/{len(files)} YAML files OK')
+sys.exit(1 if bad else 0)
+"
+
+                        echo "== JSON syntax + required keys: Grafana dashboards =="
+                        python3 -c "
+import glob, json, sys
+files = sorted(glob.glob('observability/dashboards/*.json'))
+assert len(files) == 3, f'expected exactly 3 dashboards, found {len(files)}: {files}'
+for f in files:
+    d = json.load(open(f, encoding='utf-8'))
+    assert 'panels' in d and d['panels'], f'{f}: no panels'
+    assert 'title' in d, f'{f}: no title'
+    print(f'{f}: OK ({len(d[\\"panels\\"])} panels, title={d[\\"title\\"]!r})')
+"
+
+                        echo "== PromQL semantics: promtool check rules =="
+                        python3 -c "
+import tarfile, urllib.request
+url = 'https://github.com/prometheus/prometheus/releases/download/v3.0.1/prometheus-3.0.1.linux-amd64.tar.gz'
+urllib.request.urlretrieve(url, '/tmp/prometheus.tar.gz')
+with tarfile.open('/tmp/prometheus.tar.gz') as t:
+    member = next(m for m in t.getmembers() if m.name.endswith('/promtool'))
+    member.name = 'promtool'
+    t.extract(member, '/tmp')
+"
+                        chmod +x /tmp/promtool
+                        # promtool speaks the raw Prometheus rule-file format (a bare
+                        # top-level `groups:`), not the Kubernetes PrometheusRule CRD
+                        # wrapper (apiVersion/kind/metadata/spec.groups) - unwrap
+                        # `.spec` into a temp file before handing it to promtool.
+                        mkdir -p /tmp/promtool-rules
+                        python3 -c "
+import glob, yaml
+for i, f in enumerate(sorted(glob.glob('observability/alerts/*.yaml'))):
+    doc = yaml.safe_load(open(f, encoding='utf-8'))
+    assert doc.get('kind') == 'PrometheusRule', f'{f}: expected kind: PrometheusRule, got {doc.get(\\"kind\\")}'
+    with open(f'/tmp/promtool-rules/{i}.yaml', 'w', encoding='utf-8') as out:
+        yaml.safe_dump(doc['spec'], out)
+"
+                        /tmp/promtool check rules /tmp/promtool-rules/*.yaml
+                    '''
+                }
+            }
+        }
+
         stage('Lint / Static Analysis') {
             steps {
                 container('tools') {

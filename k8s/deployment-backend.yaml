@@ -42,6 +42,14 @@ spec:
           ports:
             - name: http
               containerPort: 5000
+          env:
+            # Feeds backend_app_info{} in app/backend/app.py - fill APP_GIT_SHA
+            # in with the commit SHA you built app/backend from (matches the
+            # image tag if you followed the "how images are built" section of
+            # this README). The Helm chart wires this automatically instead -
+            # see k8s/helm/cv-platform/templates/deployment-backend.yaml.
+            - { name: APP_VERSION, value: "1.0.0" }
+            - { name: APP_GIT_SHA, value: "REPLACE_ME_GIT_SHA" }
           envFrom:
             - configMapRef: { name: app-config }
             - secretRef: { name: db-credentials }

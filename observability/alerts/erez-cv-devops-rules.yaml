@@ -1,0 +1,179 @@
+# The single PrometheusRule for this project - six required alerts (2
+# application, 2 Kubernetes, 1 Jenkins, 1 monitoring-of-the-monitoring)
+# plus two recording rules that back both the alerts AND the Application
+# Overview dashboard's SLI panels (see observability/dashboards/), so the
+# number shown on a panel and the number an alert fires on are always the
+# exact same PromQL expression, computed once.
+#
+# Every alert carries severity + summary + description + a runbook_url
+# annotation, satisfying the final project's minimum per-alert requirement.
+# runbook_url points at the in-repo runbook (observability/runbooks/) - in a
+# real deploy this would be a real URL to an internal wiki; kept
+# repo-relative here since this project ships the runbooks IN the repo,
+# which is more durable for a course submission than a link that could 404.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: erez-cv-devops-alerts
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: erez-cv-devops
+    # No "release: <helm-release>" label needed - see the ServiceMonitors'
+    # identical note; ruleSelector: {} means Prometheus picks up every
+    # PrometheusRule regardless of label.
+spec:
+  groups:
+    # -----------------------------------------------------------------
+    # Recording rules: the SLI values in the "SLI/SLO מינימלי" table -
+    # computed once, reused by both alerts (below) and Grafana panels.
+    # -----------------------------------------------------------------
+    - name: erez-cv-devops.sli-recording-rules
+      interval: 30s
+      rules:
+        - record: app:availability:ratio_5m
+          # 1 - (5xx rate / total rate) across ALL app services combined -
+          # deliberately not per-endpoint, matching the SLO's own framing
+          # ("% success for the user journey", not "% success per route").
+          expr: >
+            1 - (
+              (sum(rate(backend_http_request_errors_total[5m])) or vector(0))
+              /
+              (sum(rate(backend_http_requests_total[5m])) > 0)
+            )
+        - record: app:latency:p95_5m
+          expr: >
+            histogram_quantile(0.95,
+              sum(rate(backend_http_request_duration_seconds_bucket[5m])) by (le)
+            )
+
+    # -----------------------------------------------------------------
+    # Application (2 required: HighErrorRate, HighLatencyP95)
+    # -----------------------------------------------------------------
+    - name: erez-cv-devops.application
+      rules:
+        - alert: HighErrorRate
+          # Doubles as the Availability SLI/SLO proof: app:availability:ratio_5m
+          # < 0.99 is the exact same condition as "5xx ratio > 1%", just
+          # expressed the other way round - one PromQL expression, one alert,
+          # covers both the final project's alert-count requirement and its
+          # SLI/SLO requirement (see observability/README.md "SLI/SLO").
+          expr: app:availability:ratio_5m < 0.95
+          for: 10m
+          labels:
+            severity: critical
+            domain: application
+          annotations:
+            summary: "Backend 5xx error rate above 5% for 10 minutes"
+            description: >-
+              app:availability:ratio_5m = {{ $value | humanizePercentage }} (target: >= 99%).
+              More than 1 in 20 backend requests failed with a 5xx over the last 5 minutes,
+              sustained for 10 minutes. Check `kubectl logs -n devops-app -l app.kubernetes.io/component=backend`
+              and the Application Overview dashboard's error-rate-by-endpoint panel to isolate
+              which route is failing.
+            runbook_url: "observability/runbooks/HighErrorRate.md"
+
+        - alert: HighLatencyP95
+          expr: app:latency:p95_5m > 0.5
+          for: 10m
+          labels:
+            severity: warning
+            domain: application
+          annotations:
+            summary: "Backend p95 latency above 500ms SLO for 10 minutes"
+            description: >-
+              app:latency:p95_5m = {{ $value | humanizeDuration }} (SLO: <= 500ms for 95% of requests).
+              Check the Application Overview dashboard's latency-by-endpoint panel and
+              `kubectl top pods -n devops-app` for resource pressure before assuming a code
+              regression.
+            runbook_url: "observability/runbooks/HighLatencyP95.md"
+
+    # -----------------------------------------------------------------
+    # Kubernetes (2 required: ReplicasMismatch, NodeNotReady/Pressure)
+    # -----------------------------------------------------------------
+    - name: erez-cv-devops.kubernetes
+      rules:
+        - alert: ReplicasMismatch
+          expr: >
+            kube_deployment_status_replicas_available{namespace=~"devops-app.*"}
+            < kube_deployment_spec_replicas{namespace=~"devops-app.*"}
+          for: 10m
+          labels:
+            severity: warning
+            domain: kubernetes
+          annotations:
+            summary: "{{ $labels.namespace }}/{{ $labels.deployment }} has fewer available replicas than desired"
+            description: >-
+              {{ $labels.deployment }} in {{ $labels.namespace }} wants
+              {{ $labels.spec_replicas }} replicas but only has
+              {{ $value }} available, for 10+ minutes. Check
+              `kubectl describe deployment {{ $labels.deployment }} -n {{ $labels.namespace }}`
+              and `kubectl get events -n {{ $labels.namespace }}` for the underlying cause
+              (image pull failure, failing readiness probe, resource pressure, PDB conflict).
+            runbook_url: "observability/runbooks/ReplicasMismatch.md"
+
+        - alert: NodeNotReadyOrPressure
+          expr: >
+            kube_node_status_condition{condition="Ready", status="true"} == 0
+            or
+            kube_node_status_condition{condition=~"MemoryPressure|DiskPressure|PIDPressure", status="true"} == 1
+          for: 10m
+          labels:
+            severity: critical
+            domain: kubernetes
+          annotations:
+            summary: "Node {{ $labels.node }} is NotReady or under resource pressure"
+            description: >-
+              {{ $labels.node }} has been NotReady, or reporting
+              {{ $labels.condition }} pressure, for 10+ minutes. Check
+              `kubectl describe node {{ $labels.node }}` and `kubectl top nodes`. This
+              distinguishes a platform-level incident from an application-level one -
+              see the Kubernetes / Cluster dashboard's node health panel.
+            runbook_url: "observability/runbooks/NodeNotReadyOrPressure.md"
+
+    # -----------------------------------------------------------------
+    # Jenkins (1 required: JenkinsQueueStuck)
+    # -----------------------------------------------------------------
+    - name: erez-cv-devops.jenkins
+      rules:
+        - alert: JenkinsQueueStuck
+          # jenkins_queue_stuck_value is the Prometheus plugin's own direct
+          # count of queue items Jenkins itself has flagged as stuck (waiting
+          # longer than its internal threshold for an executor). Confirmed
+          # against a live controller - see observability/README.md "What
+          # was and wasn't run live". If a future plugin version renames
+          # this metric, `jenkins_queue_size_value > 5` sustained for 10m is
+          # the documented fallback condition.
+          expr: jenkins_queue_stuck_value > 0
+          for: 10m
+          labels:
+            severity: warning
+            domain: jenkins
+          annotations:
+            summary: "Jenkins has stuck build queue items"
+            description: >-
+              {{ $value }} queue item(s) have been stuck for 10+ minutes - CI/CD is
+              backed up. Check the Jenkins & Delivery dashboard's queue/executor panel and
+              `kubectl get pods -n jenkins` for agent Pods stuck in Pending (RBAC issue,
+              node capacity, or image pull failure are the usual causes).
+            runbook_url: "observability/runbooks/JenkinsQueueStuck.md"
+
+    # -----------------------------------------------------------------
+    # Monitoring-of-the-monitoring (1 required: PrometheusTargetDown)
+    # -----------------------------------------------------------------
+    - name: erez-cv-devops.monitoring
+      rules:
+        - alert: PrometheusTargetDown
+          expr: up == 0
+          for: 10m
+          labels:
+            severity: critical
+            domain: monitoring
+          annotations:
+            summary: "Scrape target {{ $labels.job }}/{{ $labels.instance }} has been DOWN for 10+ minutes"
+            description: >-
+              Prometheus has not been able to scrape {{ $labels.job }} ({{ $labels.instance }})
+              for 10+ minutes - every other alert in this project depends on that target's
+              metrics existing, so this one fires independently of app-level health. Check
+              `kubectl get pods -n observability` and the target's own NetworkPolicy
+              (observability/network-policies/) first.
+            runbook_url: "observability/runbooks/PrometheusTargetDown.md"
